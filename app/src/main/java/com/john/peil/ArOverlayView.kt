@@ -12,6 +12,7 @@ import android.location.Location
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import java.util.Locale
 import kotlin.math.abs
@@ -175,6 +176,7 @@ class ArOverlayView @JvmOverloads constructor(
 
     fun setTargets(places: List<Place>) {
         targets = places.map { Target(it) }
+        radarZoom = 1f
         if (selected != null && places.none { it === selected }) selected = null
         recompute()
         invalidate()
@@ -464,7 +466,10 @@ class ArOverlayView @JvmOverloads constructor(
         val cx = w / 2
         val cy = height * 0.42f
         val radius = min(w * 0.40f, height * 0.26f)
-        val scale = niceScale(visible.maxOf { it.distance })
+        // Zoom per Pinch: kleinerer Radius = nahe Ziele größer sichtbar
+        val autoRange = niceScale(visible.maxOf { it.distance })
+        radarZoom = radarZoom.coerceIn(0.5f, max(1f, autoRange / 30f))
+        val scale = autoRange / radarZoom
 
         for (i in 1..3) {
             val r = radius * i / 3f
@@ -512,7 +517,9 @@ class ArOverlayView @JvmOverloads constructor(
             hitAreas.add(RectF(x - hit, y - hit, x + hit, y + hit) to t.place)
         }
 
-        canvas.drawText("KARTENANSICHT · HANDY AUFRICHTEN FÜR KAMERA", cx, cy + radius + dp(44f), Paint(smallPaint).apply { textAlign = Paint.Align.CENTER })
+        val hintPaint = Paint(smallPaint).apply { textAlign = Paint.Align.CENTER }
+        canvas.drawText("KARTENANSICHT · HANDY AUFRICHTEN FÜR KAMERA", cx, cy + radius + dp(44f), hintPaint)
+        canvas.drawText("ZOOMEN MIT ZWEI FINGERN", cx, cy + radius + dp(62f), hintPaint)
     }
 
     private fun drawGuide(canvas: Canvas, t: Target) {
@@ -571,7 +578,23 @@ class ArOverlayView @JvmOverloads constructor(
 
     // ---------- Antippen ----------
 
+    /** Zoomfaktor der Draufsicht (1 = alle Ziele passen hinein). */
+    private var radarZoom = 1f
+    private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            radarZoom *= detector.scaleFactor
+            invalidate()
+            return true
+        }
+    })
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (isFlat) {
+            scaleDetector.onTouchEvent(event)
+            // Bei zwei Fingern nur zoomen, nichts antippen
+            if (scaleDetector.isInProgress || event.pointerCount > 1) return true
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) return true
+        }
         val onGuide = guideRect.contains(event.x, event.y)
         val hit = hitAreas.lastOrNull { it.first.contains(event.x, event.y) }
         return when (event.action) {
