@@ -448,7 +448,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 )
                 layoutParams = LinearLayout.LayoutParams(dp(172), ViewGroup.LayoutParams.WRAP_CONTENT)
                     .apply { marginEnd = dp(8) }
-                setOnClickListener { if (overlay.focusPlace() === p) showDetails(p) else selectPlace(p) }
+                setOnClickListener { if (this@MainActivity.overlay.focusPlace() === p) showDetails(p) else selectPlace(p) }
             }
             card.addView(text(p.name, 15f, Color.WHITE, bold = true, maxLines = 1))
             if (loc != null) {
