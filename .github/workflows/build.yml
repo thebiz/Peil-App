@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,7 +26,19 @@ jobs:
       - name: APK bauen
         run: gradle assembleDebug --no-daemon
 
+      - name: APK umbenennen
+        run: cp app/build/outputs/apk/debug/app-debug.apk Peil-v${{ github.run_number }}.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: Peil-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: Peil-v${{ github.run_number }}.apk
+
+      # Release für den Updater in der App (und zum direkten Herunterladen)
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Peil v${{ github.run_number }}
+          body: ${{ github.event.head_commit.message }}
+          files: Peil-v${{ github.run_number }}.apk
+          make_latest: true

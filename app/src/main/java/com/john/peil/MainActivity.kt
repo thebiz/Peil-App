@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private val orientation = FloatArray(3)
 
     private val executor = Executors.newSingleThreadExecutor()
+    private lateinit var updater: Updater
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -110,6 +111,14 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         }
         findViewById<ImageButton>(R.id.mic_button).setOnClickListener { startSpeech() }
 
+        // Updates: automatisch beim Start, lange auf den Hinweistext drücken = manuell prüfen
+        updater = Updater(this) { status(it) }
+        statusText.setOnLongClickListener {
+            updater.check(manual = true)
+            true
+        }
+        if (savedInstanceState == null) updater.check()
+
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         if (rotationSensor == null) {
@@ -130,6 +139,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         if (hasLocationPermission()) startLocation()
         if (!cameraStarted && hasPermission(Manifest.permission.CAMERA)) startCamera()
+        updater.resumePendingInstall()
     }
 
     override fun onPause() {
@@ -265,7 +275,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                         status("${places.size}× „$q“ gefunden – dreh dich mal um. Antippen wählt ein anderes Ziel.")
                     }
                 }.onFailure {
-                    status("Suche hat nicht geklappt. Ist Internet an? (${it.message})")
+                    status("Suche hat nicht geklappt – bitte gleich nochmal versuchen. (${it.message})")
                 }
             }
         }

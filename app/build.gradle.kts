@@ -11,8 +11,10 @@ android {
         applicationId = "com.john.peil"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        // Jeder GitHub-Lauf bekommt automatisch eine höhere Versionsnummer (für den Updater)
+        val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = runNumber
+        versionName = "v$runNumber"
     }
 
     // Fester Schlüssel im Repo, damit sich neue Versionen einfach über die alte installieren lassen.
