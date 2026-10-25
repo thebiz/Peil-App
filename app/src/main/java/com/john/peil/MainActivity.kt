@@ -592,6 +592,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         bottomBar.visibility = if (allPlaces.isEmpty()) View.GONE else View.VISIBLE
         styleChips()
         val hidden = allPlaces.size - shown.size
+        resultCount.visibility = View.GONE
         resultCount.text = if (hidden > 0) "${shown.size} von ${allPlaces.size}" else "${shown.size} Treffer"
         rebuildList()
         updateGuideInset()
@@ -606,7 +607,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         val index = sortedShown().indexOf(p)
         if (index >= 0) {
             listContainer.post {
-                listContainer.getChildAt(index)?.let { listScroll.smoothScrollTo(maxOf(0, it.left - dp(16)), 0) }
+                listContainer.getChildAt(index + 1)?.let { listScroll.smoothScrollTo(maxOf(0, it.left - dp(16)), 0) }
             }
         }
     }
@@ -621,6 +622,9 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
     private fun rebuildList() {
         lastListRefresh = SystemClock.elapsedRealtime()
         listContainer.removeAllViews()
+        listContainer.gravity = Gravity.CENTER_VERTICAL
+        // Trefferzahl als erstes Element der Liste – läuft beim Scrollen mit nach links
+        if (allPlaces.isNotEmpty()) listContainer.addView(countChip())
         val focus = overlay.focusPlace()
         val loc = currentLocation
         if (listCompact) {
@@ -650,6 +654,13 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
             card.addView(openPill(p, small = true))
             listContainer.addView(card)
         }
+    }
+
+    private fun countChip(): View = text(resultCount.text.toString(), 14f, Ui.MUTED, Ui.REGULAR, maxLines = 1).apply {
+        setPadding(dp(14), dp(8), dp(14), dp(8))
+        background = rounded(Color.argb(235, 245, 245, 242), 30, Ui.BORDER_STRONG, 1)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { marginEnd = dp(8) }
     }
 
     /** Schmale Karte (so hoch wie die Filter-Knöpfe): Name · Entfernung. Tipp aufs Ziel klappt die Liste wieder auf. */

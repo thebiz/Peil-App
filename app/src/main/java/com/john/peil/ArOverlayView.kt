@@ -441,8 +441,8 @@ class ArOverlayView @JvmOverloads constructor(
             canvas.drawPath(arrowPath3d, arrowBottomPaint)
         } else {
             canvas.drawPath(arrowPath3d, arrowTopPaint)
+            canvas.drawPath(arrowPath3d, arrowStrokePaint) // weißer Rand nur oben
         }
-        canvas.drawPath(arrowPath3d, arrowStrokePaint)
     }
 
     private val arrowBottomPaint = Paint(Paint.ANTI_ALIAS_FLAG)
