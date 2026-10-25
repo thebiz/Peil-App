@@ -5,14 +5,17 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.location.Location
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -20,6 +23,8 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlin.math.tan
 
 /**
  * Zeichnet die Marker über das Kamerabild – wie bei einer Sternkarte.
@@ -44,11 +49,19 @@ class ArOverlayView @JvmOverloads constructor(
     private var myLat = Double.NaN
     private var myLon = Double.NaN
 
+    // Lage der Kamera: Kamera → Ost-Oben-Süd, zeilenweise 3×3
+    private val camRot = FloatArray(9)
     private var hasHeading = false
-    private var sinAz = 0.0
-    private var cosAz = 1.0
     private var heading = 0.0
     private var pitch = 0.0
+    private var camFx = 0f
+    private var camFy = 0f
+    /** Abweichung des Bezugsnordens (Kompass: Missweisung, ARCore: 0) */
+    private var bearingOffset = 0.0
+
+    /** true, wenn ARCore die Lage per Street View kennt (Marker „kleben“ an der Wand) */
+    var arLocked = false
+        set(value) { field = value; invalidate() }
 
     var onMarkerTap: ((Place) -> Unit)? = null
     var onGuideTap: ((Place) -> Unit)? = null
@@ -62,8 +75,11 @@ class ArOverlayView @JvmOverloads constructor(
 
     val isFlat: Boolean get() = abs(pitch) > 55
 
-    /** Ungefährer horizontaler Bildwinkel einer Handy-Hauptkamera im Hochformat. */
+    /** Ungefährer horizontaler Bildwinkel einer Handy-Hauptkamera im Hochformat (ohne ARCore). */
     private val fov = 60.0
+
+    private val tmp = PointF()
+    private val placedBoxes = mutableListOf<RectF>()
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Float) = v * density
@@ -173,21 +189,59 @@ class ArOverlayView @JvmOverloads constructor(
 
     fun distanceTo(place: Place): Float? = targets.firstOrNull { it.place === place }?.distance
 
-    fun setOrientation(azimuthDeg: Double, pitchDeg: Double) {
-        val r = Math.toRadians(azimuthDeg)
-        if (!hasHeading) {
-            sinAz = sin(r)
-            cosAz = cos(r)
-            hasHeading = true
+    /**
+     * Neue Kameralage. [rot] = Kamera → Ost-Oben-Süd (zeilenweise 3×3).
+     * [fxPx]/[fyPx] = Brennweite in Pixeln (0 = Schätzwert), [offsetDeg] = Missweisung bei Kompass-Daten.
+     */
+    fun setCameraPose(rot: FloatArray, fxPx: Float, fyPx: Float, offsetDeg: Double, smooth: Boolean) {
+        if (!hasHeading || !smooth) {
+            System.arraycopy(rot, 0, camRot, 0, 9)
         } else {
             // sanft glätten, damit die Marker nicht zittern
-            val a = 0.12
-            sinAz += a * (sin(r) - sinAz)
-            cosAz += a * (cos(r) - cosAz)
+            for (i in 0 until 9) camRot[i] += 0.25f * (rot[i] - camRot[i])
         }
-        heading = (Math.toDegrees(atan2(sinAz, cosAz)) + 360.0) % 360.0
-        pitch = pitchDeg
+        hasHeading = true
+        camFx = fxPx
+        camFy = fyPx
+        bearingOffset = offsetDeg
+
+        // Blickrichtung = −Z der Kamera; bei flach gehaltenem Handy die Oberkante (+Y)
+        val fx = -camRot[2].toDouble()
+        val fy = -camRot[5].toDouble()
+        val fz = -camRot[8].toDouble()
+        pitch = Math.toDegrees(asin(fy.coerceIn(-1.0, 1.0)))
+        val h = if (isFlat) atan2(camRot[1].toDouble(), -camRot[7].toDouble()) else atan2(fx, -fz)
+        heading = (Math.toDegrees(h) + offsetDeg + 720.0) % 360.0
         invalidate()
+    }
+
+    private fun effFx(): Float = if (camFx > 0f) camFx else (width / 2f) / tan(Math.toRadians(fov / 2)).toFloat()
+    private fun effFy(): Float = if (camFy > 0f) camFy else effFx()
+
+    /** Weltpunkt (Ost, Oben, Süd in Metern, relativ zur Kamera) → Bildschirm. false = hinter der Kamera. */
+    private fun project(x: Double, y: Double, z: Double, out: PointF): Boolean {
+        val r = camRot
+        val cx = r[0] * x + r[3] * y + r[6] * z
+        val cy = r[1] * x + r[4] * y + r[7] * z
+        val cz = r[2] * x + r[5] * y + r[8] * z
+        if (-cz < 0.15) return false
+        out.x = (width / 2.0 + effFx() * cx / -cz).toFloat()
+        out.y = (height / 2.0 - effFy() * cy / -cz).toFloat()
+        return true
+    }
+
+    /** Richtung zum Ziel im Bezugssystem der Kamera-Daten (Ost, Süd) als Einheitsvektor. */
+    private fun groundDir(t: Target): DoubleArray {
+        val b = Math.toRadians(t.bearing - bearingOffset)
+        return doubleArrayOf(sin(b), -cos(b))
+    }
+
+    /** Zielpunkt etwas über Augenhöhe – bei Läden etwa an der Fassade über den Köpfen. */
+    private fun targetPoint(t: Target): DoubleArray {
+        val d = groundDir(t)
+        val dist = t.distance.toDouble()
+        val up = if (dist < 15) 0.3 else 1.6
+        return doubleArrayOf(d[0] * dist, up, d[1] * dist)
     }
 
     private fun focusTarget(): Target? =
@@ -213,6 +267,7 @@ class ArOverlayView @JvmOverloads constructor(
         super.onDraw(canvas)
         hitAreas.clear()
         guideRect.setEmpty()
+        placedBoxes.clear()
         if (targets.isEmpty() || myLat.isNaN() || !hasHeading) return
 
         val focus = focusTarget() ?: return
@@ -221,57 +276,69 @@ class ArOverlayView @JvmOverloads constructor(
         if (isFlat) {
             drawRadar(canvas, visible, focus)
         } else {
-            val maxDist = max(visible.maxOf { it.distance }, 1f)
-            // erst die anderen (fern → nah), das gewählte Ziel ganz zum Schluss = ganz vorne
-            for (t in visible.asReversed()) {
-                if (t !== focus) drawTarget(canvas, t, false, maxDist)
-            }
-            drawTarget(canvas, focus, true, maxDist)
-            if (compassUnreliable) drawHint(canvas, "Kompass ungenau – Handy einmal in einer Acht schwenken")
+            // Erst das Ziel platzieren (bekommt den besten Platz), dann die anderen.
+            val layouts = mutableListOf<MarkerLayout>()
+            layoutMarker(focus, true)?.let { layouts.add(it) }
+            for (t in visible) if (t !== focus) layoutMarker(t, false)?.let { layouts.add(it) }
+            // Zeichnen: andere zuerst (fern → nah), das Ziel ganz vorne
+            layouts.filter { !it.isFocus }.sortedByDescending { it.t.distance }.forEach { drawMarker(canvas, it) }
+            layouts.firstOrNull { it.isFocus }?.let { drawMarker(canvas, it) }
+            for (t in visible) if (layouts.none { it.t === t }) drawEdgeDot(canvas, t, t === focus)
+
+            draw3dArrow(canvas, focus)
+            if (compassUnreliable && !arLocked) drawHint(canvas, "Kompass ungenau – Handy einmal in einer Acht schwenken")
         }
         drawGuide(canvas, focus)
     }
 
-    private fun markerY(t: Target, maxDist: Float): Float {
-        val norm = t.distance / maxDist
-        return height * 0.32f + (1f - norm) * height * 0.18f
-    }
+    private class MarkerLayout(val t: Target, val isFocus: Boolean, val px: Float, val py: Float, val box: RectF)
 
-    private fun drawTarget(canvas: Canvas, t: Target, isFocus: Boolean, maxDist: Float) {
-        val rel = relAngle(t.bearing)
-        val y = markerY(t, maxDist)
-        if (abs(rel) <= fov / 2) {
-            val x = (width / 2.0 + (rel / (fov / 2)) * (width / 2.0)).toFloat()
-            drawMarker(canvas, x, y, t, isFocus)
-        } else {
-            // außerhalb des Bildes: kleiner Punkt am Rand
-            val x = if (rel > 0) width - dp(10f) else dp(10f)
-            canvas.drawCircle(x, y, dp(if (isFocus) 8f else 5f), whitePaint)
-            canvas.drawCircle(x, y, dp(if (isFocus) 6f else 3.5f), if (isFocus) accentPaint else inkPaint)
+    /** Rechnet aus, wo Punkt und Schild hinkommen. null = nicht im Bild. */
+    private fun layoutMarker(t: Target, isFocus: Boolean): MarkerLayout? {
+        val p = targetPoint(t)
+        if (!project(p[0], p[1], p[2], tmp)) return null
+        val margin = dp(24f)
+        if (tmp.x < -margin || tmp.x > width + margin || tmp.y < -margin || tmp.y > height + margin) return null
+        val px = tmp.x
+        val py = tmp.y
+
+        val name = ellipsize(t.place.name, 24)
+        val tp = if (isFocus) bigTitlePaint else titlePaint
+        val pad = dp(10f)
+        val boxW = max(tp.measureText(name), textPaint.measureText(formatDistance(t.distance))) + pad * 2
+        val boxH = tp.textSize + textPaint.textSize + pad * 2 + dp(4f)
+        val left = (px - boxW / 2).coerceIn(dp(4f), max(dp(4f), width - boxW - dp(4f)))
+        var bottom = py - dp(if (isFocus) 34f else 22f)
+        val box = RectF(left, bottom - boxH, left + boxW, bottom)
+        // Überlappung mit schon platzierten Schildern vermeiden: nach oben ausweichen
+        var tries = 0
+        while (tries < 6 && placedBoxes.any { RectF.intersects(it, box) }) {
+            bottom -= boxH + dp(6f)
+            box.offsetTo(left, bottom - boxH)
+            tries++
         }
+        placedBoxes.add(RectF(box))
+        return MarkerLayout(t, isFocus, px, py, box)
     }
 
-    private fun drawMarker(canvas: Canvas, x: Float, y: Float, t: Target, isFocus: Boolean) {
+    private fun drawMarker(canvas: Canvas, m: MarkerLayout) {
+        val t = m.t
+        val isFocus = m.isFocus
+        val box = m.box
         val name = ellipsize(t.place.name, 24)
         val sub = formatDistance(t.distance)
         val tp = if (isFocus) bigTitlePaint else titlePaint
         val pad = dp(10f)
-        val boxW = max(tp.measureText(name), textPaint.measureText(sub)) + pad * 2
-        val boxH = tp.textSize + textPaint.textSize + pad * 2 + dp(4f)
 
-        val left = (x - boxW / 2).coerceIn(dp(4f), max(dp(4f), width - boxW - dp(4f)))
-        val box = RectF(left, y - boxH, left + boxW, y)
+        // Stiel vom Schild zum Punkt
+        stemPaint.color = if (isFocus) Color.WHITE else Color.argb(220, 255, 255, 255)
+        val stemX = m.px.coerceIn(box.left + dp(12f), box.right - dp(12f))
+        canvas.drawLine(stemX, box.bottom, m.px, m.py, stemPaint)
 
-        stemPaint.color = if (isFocus) accent else Color.WHITE
-        canvas.drawLine(x, y, x, y + dp(22f), stemPaint)
-        val dotY = y + dp(22f)
-        if (isFocus) {
-            canvas.drawCircle(x, dotY, dp(8f), whitePaint)
-            canvas.drawCircle(x, dotY, dp(6f), accentPaint)
-        } else {
-            canvas.drawCircle(x, dotY, dp(6f), whitePaint)
+        if (isFocus) drawTargetDisc(canvas, m.px, m.py) else {
+            canvas.drawCircle(m.px, m.py, dp(6f), whitePaint)
             dotRing.strokeWidth = dp(2.5f)
-            canvas.drawCircle(x, dotY, dp(4.5f), dotRing)
+            canvas.drawCircle(m.px, m.py, dp(4.5f), dotRing)
         }
 
         val radius = dp(13f)
@@ -280,7 +347,110 @@ class ArOverlayView @JvmOverloads constructor(
         canvas.drawText(name, box.left + pad, box.top + pad + tp.textSize * 0.85f, tp)
         canvas.drawText(sub, box.left + pad, box.bottom - pad, if (isFocus) accentTextPaint else textPaint)
 
-        hitAreas.add(RectF(box.left, box.top, box.right, y + dp(30f)) to t.place)
+        hitAreas.add(RectF(box.left, box.top, box.right, box.bottom + dp(10f)) to t.place)
+        hitAreas.add(RectF(m.px - dp(24f), m.py - dp(24f), m.px + dp(24f), m.py + dp(24f)) to t.place)
+    }
+
+    /** Pulsierende Zielscheibe: dunkler Hof, weißer Ring, farbiger Kern – auf jeder Fassade gut sichtbar. */
+    private fun drawTargetDisc(canvas: Canvas, x: Float, y: Float) {
+        val phase = (SystemClock.uptimeMillis() % 1600L) / 1600f
+        pulsePaint.alpha = ((1f - phase) * 170).toInt()
+        canvas.drawCircle(x, y, dp(16f) + phase * dp(22f), pulsePaint)
+        canvas.drawCircle(x, y, dp(19f), haloPaint)
+        canvas.drawCircle(x, y, dp(16f), whitePaint)
+        canvas.drawCircle(x, y, dp(12.5f), accentPaint)
+        canvas.drawCircle(x, y, dp(7.5f), Paint(whitePaint).apply { clearShadowLayer() })
+        canvas.drawCircle(x, y, dp(4f), accentPaint)
+        postInvalidateOnAnimation()
+    }
+
+    private fun drawEdgeDot(canvas: Canvas, t: Target, isFocus: Boolean) {
+        val rel = relAngle(t.bearing)
+        val x = if (rel > 0) width - dp(12f) else dp(12f)
+        val y = height * 0.45f
+        canvas.drawCircle(x, y, dp(if (isFocus) 8f else 5f), whitePaint)
+        canvas.drawCircle(x, y, dp(if (isFocus) 6f else 3.5f), if (isFocus) accentPaint else inkPaint)
+    }
+
+    /**
+     * 3D-Pfeil im Kamerabild: schwebt vor dir knapp unter der Bildmitte, liegt flach im Raum
+     * und dreht/neigt sich mit dem Handy zum Ziel – wie ein Kompass im Raum.
+     */
+    private fun draw3dArrow(canvas: Canvas, focus: Target) {
+        val r = camRot
+        // Mittelpunkt in Kamerakoordinaten → Welt
+        val bob = sin(SystemClock.uptimeMillis() / 450.0) * 0.012
+        val ccx = 0.0
+        val ccy = -0.30 + bob
+        val ccz = -1.25
+        val wx = r[0] * ccx + r[1] * ccy + r[2] * ccz
+        val wy = r[3] * ccx + r[4] * ccy + r[5] * ccz
+        val wz = r[6] * ccx + r[7] * ccy + r[8] * ccz
+
+        val d = groundDir(focus)     // Richtung (Ost, Süd)
+        val dx = d[0]
+        val dz = d[1]
+        val sx = -dz                 // Querachse = Richtung × oben
+        val sz = dx
+        val len = 0.30
+        val back = 0.14
+        val notch = 0.04
+        val wing = 0.17
+        val thick = 0.045
+
+        val top = arrayOf(
+            doubleArrayOf(wx + dx * len, wy, wz + dz * len),
+            doubleArrayOf(wx - dx * back + sx * wing, wy, wz - dz * back + sz * wing),
+            doubleArrayOf(wx - dx * notch, wy, wz - dz * notch),
+            doubleArrayOf(wx - dx * back - sx * wing, wy, wz - dz * back - sz * wing)
+        )
+        val topPts = Array(4) { PointF() }
+        val botPts = Array(4) { PointF() }
+        for (i in 0 until 4) {
+            if (!project(top[i][0], top[i][1], top[i][2], topPts[i])) return
+            if (!project(top[i][0], top[i][1] - thick, top[i][2], botPts[i])) return
+        }
+
+        // Seitenflächen (dunkel), dann Oberseite (Akzent mit weißem Rand)
+        arrowSidePaint.color = darker(accent)
+        for (i in 0 until 4) {
+            val j = (i + 1) % 4
+            arrowPath3d.reset()
+            arrowPath3d.moveTo(topPts[i].x, topPts[i].y)
+            arrowPath3d.lineTo(topPts[j].x, topPts[j].y)
+            arrowPath3d.lineTo(botPts[j].x, botPts[j].y)
+            arrowPath3d.lineTo(botPts[i].x, botPts[i].y)
+            arrowPath3d.close()
+            canvas.drawPath(arrowPath3d, arrowSidePaint)
+        }
+        arrowPath3d.reset()
+        arrowPath3d.moveTo(topPts[0].x, topPts[0].y)
+        for (i in 1 until 4) arrowPath3d.lineTo(topPts[i].x, topPts[i].y)
+        arrowPath3d.close()
+        canvas.drawPath(arrowPath3d, arrowTopPaint)
+        canvas.drawPath(arrowPath3d, arrowStrokePaint)
+    }
+
+    private fun darker(c: Int): Int =
+        Color.rgb((Color.red(c) * 0.6f).toInt(), (Color.green(c) * 0.6f).toInt(), (Color.blue(c) * 0.6f).toInt())
+
+    private val pulsePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(3f)
+        color = Color.WHITE
+    }
+    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(90, 0, 0, 0) }
+    private val arrowPath3d = Path()
+    private val arrowSidePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val arrowTopPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Ui.ACCENT
+        setShadowLayer(dp(10f), 0f, dp(4f), Color.argb(90, 0, 0, 0))
+    }
+    private val arrowStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(2.5f)
+        strokeJoin = Paint.Join.ROUND
+        color = Color.WHITE
     }
 
     /** Kartenansicht von oben: Mitte = du, oben = Blickrichtung. */

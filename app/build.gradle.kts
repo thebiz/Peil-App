@@ -16,6 +16,9 @@ android {
         val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = runNumber
         versionName = rootProject.file("version.txt").readText().trim()
+
+        // ARCore-Schlüssel kommt aus dem GitHub-Secret ARCORE_API_KEY (steht nie im Code)
+        manifestPlaceholders["arcoreApiKey"] = System.getenv("ARCORE_API_KEY") ?: ""
     }
 
     // Fester Schlüssel im Repo, damit sich neue Versionen einfach über die alte installieren lassen.
@@ -51,4 +54,6 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
+    implementation("com.google.ar:core:1.46.0")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 }

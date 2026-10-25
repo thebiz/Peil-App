@@ -43,6 +43,10 @@
             </intent-filter>
         </activity>
 
+        <!-- ARCore ist optional: ohne läuft Peil mit normaler Kamera und Kompass -->
+        <meta-data android:name="com.google.ar.core" android:value="optional" />
+        <meta-data android:name="com.google.android.ar.API_KEY" android:value="${arcoreApiKey}" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

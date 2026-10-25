@@ -53,7 +53,7 @@ import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import java.util.concurrent.Executors
 
-class MainActivity : ComponentActivity(), SensorEventListener, LocationListener {
+class MainActivity : ComponentActivity(), SensorEventListener, LocationListener, ArCamera.Listener {
 
     private lateinit var previewView: PreviewView
     private lateinit var overlay: ArOverlayView
@@ -93,8 +93,18 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private var navInset = 0
 
     private val rotation = FloatArray(9)
-    private val remapped = FloatArray(9)
-    private val orientation = FloatArray(3)
+    private val eusRotation = FloatArray(9)
+
+    // ARCore
+    private var ar: ArCamera? = null
+    private var arInstallRequested = false
+    private var arWaiting = false
+    @Volatile private var arLocked = false
+    @Volatile private var arFx = 0f
+    @Volatile private var arFy = 0f
+    private var lastArUi = 0L
+    private var lastArStateText: String? = null
+    private val prefs by lazy { getSharedPreferences("peil", MODE_PRIVATE) }
 
     private val executor = Executors.newFixedThreadPool(2)
 
@@ -102,7 +112,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { granted ->
-        if (granted[Manifest.permission.CAMERA] == true) startCamera()
+        if (granted[Manifest.permission.CAMERA] == true) setupCamera()
         if (hasLocationPermission()) {
             startLocation()
         } else {
@@ -213,7 +223,18 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         // Magnetsensor nur, um zu erfahren, wie genau der Kompass gerade ist
         magnetSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
         if (hasLocationPermission()) startLocation()
-        if (!cameraStarted && hasPermission(Manifest.permission.CAMERA)) startCamera()
+        if (hasPermission(Manifest.permission.CAMERA)) {
+            val a = ar
+            if (a != null) {
+                try {
+                    a.resume()
+                } catch (e: Exception) {
+                    status("AR-Kamera ließ sich nicht starten: ${e.message}")
+                }
+            } else if (!cameraStarted) {
+                setupCamera()
+            }
+        }
         updater.resumePendingInstall()
     }
 
@@ -232,14 +253,104 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         super.onPause()
         sensorManager.unregisterListener(this)
         locationManager?.removeUpdates(this)
+        ar?.pause()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        ar?.close()
         executor.shutdown()
     }
 
-    // ---------- Kamera ----------
+    // ---------- Kamera: ARCore, sonst normale Kamera ----------
+
+    private fun arEnabled() = prefs.getBoolean("ar", true)
+
+    /** Startet ARCore, wenn möglich – sonst die normale Kamera. */
+    private fun setupCamera() {
+        if (ar != null || cameraStarted || arWaiting) return
+        if (arEnabled() && tryStartAr()) return
+        startCamera()
+    }
+
+    private fun tryStartAr(): Boolean {
+        val core = com.google.ar.core.ArCoreApk.getInstance()
+        val availability = core.checkAvailability(this)
+        if (availability.isTransient) {
+            // Prüfung läuft noch – gleich nochmal
+            arWaiting = true
+            previewView.postDelayed({
+                arWaiting = false
+                setupCamera()
+            }, 250)
+            return true
+        }
+        if (!availability.isSupported) return false
+        try {
+            val install = core.requestInstall(this, !arInstallRequested)
+            if (install == com.google.ar.core.ArCoreApk.InstallStatus.INSTALL_REQUESTED) {
+                arInstallRequested = true
+                return true // nach der Installation geht es in onResume weiter
+            }
+            val camera = ArCamera(this, this)
+            camera.createSession()
+            ar = camera
+            previewView.visibility = View.GONE
+            findViewById<android.widget.FrameLayout>(R.id.root).addView(
+                camera.view, 0,
+                android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
+            camera.resume()
+            status(
+                if (camera.geospatialSupported) "AR an – richte die Kamera kurz auf Häuser, dann finde ich dich auf den Meter genau."
+                else "AR an, aber ohne Street-View-Abgleich – Richtung kommt vom Kompass."
+            )
+            return true
+        } catch (e: Exception) {
+            ar?.close()
+            ar = null
+            status("ARCore ist hier nicht verfügbar – ich nehme die normale Kamera.")
+            return false
+        }
+    }
+
+    /** Ein neues AR-Bild (läuft im Grafik-Thread). */
+    override fun onArFrame(info: ArCamera.FrameInfo) {
+        arFx = info.fx
+        arFy = info.fy
+        val rot = info.geoRotation
+        val locked = rot != null && info.headingAccuracy <= 12.0 && info.horizontalAccuracy <= 15.0
+        arLocked = locked
+        if (locked && rot != null) {
+            overlay.post {
+                overlay.arLocked = true
+                overlay.setCameraPose(rot, info.fx, info.fy, 0.0, smooth = false)
+            }
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastArUi < 1000) return
+        lastArUi = now
+        val text = when {
+            info.earthState != null && info.earthState != com.google.ar.core.Earth.EarthState.ENABLED ->
+                "AR: Street-View-Abgleich nicht möglich (${info.earthState}). Ist der Schlüssel richtig hinterlegt?"
+            !info.cameraTracking -> "AR: Handy langsam etwas bewegen …"
+            locked -> "AR: auf ±${info.horizontalAccuracy.roundToIntSafe()}\u202Fm genau – Marker haften an den Häusern."
+            rot != null -> "AR: Kamera auf Häuser richten, um genauer zu werden (±${info.horizontalAccuracy.roundToIntSafe()}\u202Fm)."
+            else -> "AR: suche Street-View-Abgleich …"
+        }
+        overlay.post {
+            if (!locked) overlay.arLocked = false
+            if (text != lastArStateText) {
+                lastArStateText = text
+                if (allPlaces.isNotEmpty() || !locked) status(text)
+            }
+            if (locked && !info.geoLat.isNaN()) overlay.setLocation(info.geoLat, info.geoLon)
+        }
+    }
+
+    private fun Double.roundToIntSafe(): Int = if (isNaN() || isInfinite()) 0 else Math.round(this).toInt()
 
     private fun startCamera() {
         cameraStarted = true
@@ -322,13 +433,17 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+        if (arLocked) return // ARCore weiß es genauer
+        // Gerät → Ost-Nord-Oben; die Kamera schaut entlang −Z des Geräts
         SensorManager.getRotationMatrixFromVector(rotation, event.values)
-        // Handy aufrecht wie eine Kamera: Blickrichtung = Rückseite des Handys
-        SensorManager.remapCoordinateSystem(rotation, SensorManager.AXIS_X, SensorManager.AXIS_Z, remapped)
-        SensorManager.getOrientation(remapped, orientation)
-        val azimuth = Math.toDegrees(orientation[0].toDouble()) + declination
-        val pitch = Math.toDegrees(orientation[1].toDouble())
-        overlay.setOrientation(azimuth, pitch)
+        // umrechnen auf Ost-Oben-Süd (wie ARCore)
+        for (j in 0 until 3) {
+            eusRotation[j] = rotation[j]           // Ost
+            eusRotation[3 + j] = rotation[6 + j]   // Oben
+            eusRotation[6 + j] = -rotation[3 + j]  // Süd = −Nord
+        }
+        overlay.arLocked = false
+        overlay.setCameraPose(eusRotation, arFx, arFy, declination.toDouble(), smooth = true)
     }
 
     override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
@@ -862,6 +977,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         val items = arrayOf(
             "Nach Updates suchen",
             "Gemerkte Orte anzeigen ($favCount)",
+            if (arEnabled()) "AR-Modus (ARCore) ausschalten" else "AR-Modus (ARCore) einschalten",
             "Kompass kalibrieren – so geht's",
             "Über Peil & Datenquellen"
         )
@@ -871,13 +987,18 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 when (which) {
                     0 -> updater.check(manual = true)
                     1 -> showFavorites()
-                    2 -> info(
+                    2 -> {
+                        prefs.edit().putBoolean("ar", !arEnabled()).apply()
+                        status(if (arEnabled()) "AR-Modus an – Peil startet neu." else "AR-Modus aus – Peil startet neu.")
+                        recreate()
+                    }
+                    3 -> info(
                         "Kompass kalibrieren",
                         "Halte das Handy vor dich und schwenke es zwei-, dreimal in Form einer liegenden Acht (∞), " +
                             "dabei auch leicht kippen und drehen.\n\nTipp: Abstand zu Autos, Metallgeländern und " +
                             "Magnethüllen hilft. Wenn der Kompass ungenau wird, vibriert Peil kurz."
                     )
-                    3 -> info(
+                    4 -> info(
                         "Über Peil",
                         "Version ${versionName()} (Build ${buildNumber()})\n\nOrtsdaten und Öffnungszeiten: © OpenStreetMap-Mitwirkende (ODbL)\n" +
                             "Suche: Photon von komoot\nVerbindungen: Deutsche Bahn über transport.rest"
