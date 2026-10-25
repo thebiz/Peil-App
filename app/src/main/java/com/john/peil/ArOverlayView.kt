@@ -429,13 +429,23 @@ class ArOverlayView @JvmOverloads constructor(
             arrowPath3d.close()
             canvas.drawPath(arrowPath3d, arrowSidePaint)
         }
+        // Von oben sieht man die orange Oberseite, von unten den dunklen Boden
+        val seenFromBelow = wy - thick / 2 > 0.0
+        val face = if (seenFromBelow) botPts else topPts
         arrowPath3d.reset()
-        arrowPath3d.moveTo(topPts[0].x, topPts[0].y)
-        for (i in 1 until 4) arrowPath3d.lineTo(topPts[i].x, topPts[i].y)
+        arrowPath3d.moveTo(face[0].x, face[0].y)
+        for (i in 1 until 4) arrowPath3d.lineTo(face[i].x, face[i].y)
         arrowPath3d.close()
-        canvas.drawPath(arrowPath3d, arrowTopPaint)
+        if (seenFromBelow) {
+            arrowBottomPaint.color = darker(accent)
+            canvas.drawPath(arrowPath3d, arrowBottomPaint)
+        } else {
+            canvas.drawPath(arrowPath3d, arrowTopPaint)
+        }
         canvas.drawPath(arrowPath3d, arrowStrokePaint)
     }
+
+    private val arrowBottomPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private fun darker(c: Int): Int =
         Color.rgb((Color.red(c) * 0.6f).toInt(), (Color.green(c) * 0.6f).toInt(), (Color.blue(c) * 0.6f).toInt())

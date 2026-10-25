@@ -323,15 +323,16 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         arFx = info.fx
         arFy = info.fy
         val rot = info.geoRotation
-        val locked = rot != null && info.headingAccuracy <= 12.0 && info.horizontalAccuracy <= 15.0
+        val now = SystemClock.elapsedRealtime()
+        val locked = decideArLock(rot, info, now)
         arLocked = locked
         if (locked && rot != null) {
             overlay.post {
                 overlay.arLocked = true
-                overlay.setCameraPose(rot, info.fx, info.fy, 0.0, smooth = false)
+                // sanft, damit beim Umschalten nichts springt
+                overlay.setCameraPose(rot, info.fx, info.fy, 0.0, smooth = true)
             }
         }
-        val now = SystemClock.elapsedRealtime()
         if (now - lastArUi < 1000) return
         lastArUi = now
         val text = when {
@@ -350,6 +351,58 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
             }
             if (locked && !info.geoLat.isNaN()) overlay.setLocation(info.geoLat, info.geoLon)
         }
+    }
+
+    // ---------- Richtung absichern: ARCore nur, wenn es dauerhaft sicher ist und zum Kompass passt ----------
+
+    @Volatile private var compassHeading = Double.NaN   // Blickrichtung laut Kompass (rechtweisend)
+    @Volatile private var compassBad = false
+    private var arGoodSince = 0L
+    private var arDisagreeSince = 0L
+
+    private fun decideArLock(rot: FloatArray?, info: ArCamera.FrameInfo, now: Long): Boolean {
+        val good = rot != null && info.headingAccuracy <= 10.0 && info.horizontalAccuracy <= 12.0
+        if (!good || rot == null) {
+            arGoodSince = 0L
+            arDisagreeSince = 0L
+            return false
+        }
+        if (arGoodSince == 0L) arGoodSince = now
+        val arHeading = headingOf(rot)
+        val ch = compassHeading
+        val diff = if (ch.isNaN()) 0.0 else angleDiff(arHeading, ch)
+        // Weicht ARCore stark vom Kompass ab, braucht es eine sehr gute eigene Genauigkeit
+        val agrees = diff <= 30.0 || (compassBad && info.headingAccuracy <= 5.0)
+        if (arLocked) {
+            // einmal übernommen: erst lösen, wenn es 2 Sekunden lang deutlich abweicht
+            if (diff > 45.0 && !compassBad) {
+                if (arDisagreeSince == 0L) arDisagreeSince = now
+                if (now - arDisagreeSince > 2_000) {
+                    arGoodSince = now
+                    arDisagreeSince = 0L
+                    return false
+                }
+            } else {
+                arDisagreeSince = 0L
+            }
+            return true
+        }
+        // neu übernehmen: erst nach 3 Sekunden am Stück sicher und passend zum Kompass
+        if (!agrees) arGoodSince = now
+        return now - arGoodSince >= 3_000
+    }
+
+    /** Blickrichtung (0–360°) aus der Lage Kamera → Ost-Oben-Süd. */
+    private fun headingOf(r: FloatArray): Double {
+        val fy = -r[5]
+        val h = if (Math.abs(fy) > 0.82f) Math.atan2(r[1].toDouble(), -r[7].toDouble())
+        else Math.atan2(-r[2].toDouble(), r[8].toDouble())
+        return (Math.toDegrees(h) + 360.0) % 360.0
+    }
+
+    private fun angleDiff(a: Double, b: Double): Double {
+        val d = Math.abs(a - b) % 360.0
+        return if (d > 180.0) 360.0 - d else d
     }
 
     private fun Double.roundToIntSafe(): Int = if (isNaN() || isInfinite()) 0 else Math.round(this).toInt()
@@ -435,7 +488,6 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
-        if (arLocked) return // ARCore weiß es genauer
         // Gerät → Ost-Nord-Oben; die Kamera schaut entlang −Z des Geräts
         SensorManager.getRotationMatrixFromVector(rotation, event.values)
         // umrechnen auf Ost-Oben-Süd (wie ARCore)
@@ -444,6 +496,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
             eusRotation[3 + j] = rotation[6 + j]   // Oben
             eusRotation[6 + j] = -rotation[3 + j]  // Süd = −Nord
         }
+        compassHeading = (headingOf(eusRotation) + declination + 360.0) % 360.0
+        if (arLocked) return // ARCore ist gerade sicher und passt zum Kompass
         overlay.arLocked = false
         overlay.setCameraPose(eusRotation, arFx, arFy, declination.toDouble(), smooth = true)
     }
@@ -458,6 +512,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
             status("Kompass ungenau – schwenk das Handy einmal in Form einer Acht.")
         }
         overlay.compassUnreliable = bad
+        compassBad = bad
     }
 
     // ---------- Suche ----------
