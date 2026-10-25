@@ -91,6 +91,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
     private var lastListRefresh = 0L
     private var lastCalibrationBuzz = 0L
     private var navInset = 0
+    /** Nach der Auswahl eines Ziels schrumpft die Trefferliste auf eine schmale Reihe. */
+    private var listCompact = false
 
     private val rotation = FloatArray(9)
     private val eusRotation = FloatArray(9)
@@ -510,6 +512,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
     /** Neue Ergebnisliste anzeigen und Öffnungszeiten im Hintergrund nachladen. */
     private fun showPlaces(places: List<Place>) {
         allPlaces = places
+        listCompact = false
         arrivedKey = null
         overlay.select(null)
         applyResults()
@@ -541,6 +544,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
 
     private fun selectPlace(p: Place) {
         overlay.select(p)
+        listCompact = true
         arrivedKey = null
         rebuildList()
         // gewählte Karte in den sichtbaren Bereich scrollen
@@ -564,6 +568,10 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         listContainer.removeAllViews()
         val focus = overlay.focusPlace()
         val loc = currentLocation
+        if (listCompact) {
+            for (p in sortedShown()) listContainer.addView(compactCard(p, p === focus, loc))
+            return
+        }
         for (p in sortedShown()) {
             val isSel = p === focus
             val card = LinearLayout(this).apply {
@@ -588,6 +596,27 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         }
     }
 
+    /** Schmale Karte (so hoch wie die Filter-Knöpfe): Name · Entfernung. Tipp aufs Ziel klappt die Liste wieder auf. */
+    private fun compactCard(p: Place, isSel: Boolean, loc: Location?): View {
+        val dist = loc?.let { " · " + ArOverlayView.formatDistance(distanceTo(p, it)) } ?: ""
+        return text(p.name + dist, 14f, if (isSel) Color.WHITE else Ui.INK, if (isSel) Ui.MEDIUM else Ui.REGULAR, maxLines = 1).apply {
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = rounded(if (isSel) Ui.ACCENT else Ui.CARD, 30, if (isSel) Ui.ACCENT else Ui.BORDER, 1)
+            elevation = dp(1).toFloat()
+            maxWidth = dp(230)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { marginEnd = dp(8); bottomMargin = dp(2) }
+            setOnClickListener {
+                if (isSel) {
+                    listCompact = false
+                    rebuildList()
+                } else {
+                    selectPlace(p)
+                }
+            }
+        }
+    }
+
     /** Kleines Etikett „Geöffnet · bis 20:00 Uhr“ im Spur-Stil. */
     private fun openPill(p: Place, small: Boolean): TextView {
         val st = OpeningHours.status(p.openingHours)
@@ -608,10 +637,12 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
     private fun styleChips() {
         styleChip(chipOpen, onlyOpen, getString(R.string.only_open))
         styleChip(chipOnly, overlay.onlyFocus, getString(R.string.only_target))
-        resultCount.setTextColor(Ui.CHIP_TEXT)
-        resultCount.typeface = Ui.BOLD
-        resultCount.setPadding(dp(9), dp(4), dp(9), dp(4))
-        resultCount.background = rounded(Ui.CHIP, 20, Color.TRANSPARENT, 0)
+        // gleich hoch wie die Filter-Knöpfe, aber zurückhaltend: feine Kontur, graue Schrift
+        resultCount.setTextColor(Ui.MUTED)
+        resultCount.typeface = Ui.REGULAR
+        resultCount.textSize = 14f
+        resultCount.setPadding(dp(14), dp(8), dp(14), dp(8))
+        resultCount.background = rounded(Color.argb(235, 245, 245, 242), 30, Ui.BORDER_STRONG, 1)
     }
 
     private fun styleChip(v: TextView, on: Boolean, label: String) {
