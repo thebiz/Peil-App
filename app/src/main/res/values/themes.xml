@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_bg">#14161A</color>
-    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+    <color name="ic_bg">#ED682F</color>
+    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:colorAccent">#FFB547</item>
+        <item name="android:colorAccent">#ED682F</item>
+        <item name="android:colorPrimary">#F5F5F2</item>
+        <item name="android:textColorPrimary">#252927</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <style name="PeilDialog" parent="android:Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#ED682F</item>
+        <item name="android:textColorPrimary">#252927</item>
+        <item name="android:windowBackground">@drawable/sheet_bg</item>
     </style>
 </resources>

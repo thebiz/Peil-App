@@ -98,9 +98,6 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
 
     private val executor = Executors.newFixedThreadPool(2)
 
-    private val accent = Color.parseColor("#FFB547")
-    private val green = Color.parseColor("#6FD08C")
-    private val red = Color.parseColor("#FF8A7A")
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -441,47 +438,59 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             val isSel = p === focus
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(10), dp(14), dp(10))
-                background = rounded(
-                    if (isSel) Color.parseColor("#F2302512") else Color.parseColor("#E6141619"),
-                    16, if (isSel) accent else Color.argb(50, 255, 255, 255), if (isSel) 2 else 1
-                )
-                layoutParams = LinearLayout.LayoutParams(dp(172), ViewGroup.LayoutParams.WRAP_CONTENT)
-                    .apply { marginEnd = dp(8) }
-                setOnClickListener { if (this@MainActivity.overlay.focusPlace() === p) showDetails(p) else selectPlace(p) }
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = rounded(Ui.CARD, 18, if (isSel) Ui.ACCENT else Ui.BORDER, if (isSel) 2 else 1)
+                elevation = dp(2).toFloat()
+                layoutParams = LinearLayout.LayoutParams(dp(176), ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { marginEnd = dp(8); bottomMargin = dp(2) }
             }
-            card.addView(text(p.name, 15f, Color.WHITE, bold = true, maxLines = 1))
+            card.setOnClickListener { if (overlay.focusPlace() === p) showDetails(p) else selectPlace(p) }
+            card.addView(text(p.name, 15f, Ui.INK, Ui.MEDIUM, maxLines = 1))
             if (loc != null) {
                 val d = distanceTo(p, loc)
                 card.addView(
-                    text(
-                        "${ArOverlayView.formatDistance(d)} · ${ArOverlayView.walkMinutes(d)} Min.",
-                        13f, accent, bold = true
-                    )
+                    text("${ArOverlayView.formatDistance(d)} · ${ArOverlayView.walkMinutes(d)} Min.", 13f, Ui.ACCENT, Ui.BOLD)
+                        .apply { setPadding(0, dp(3), 0, dp(6)) }
                 )
             }
-            val st = OpeningHours.status(p.openingHours)
-            val (openText, openColor) = when {
-                st != null -> st.text to (if (st.open) green else red)
-                !p.detailsLoaded -> "Lade Öffnungszeiten …" to Color.argb(150, 255, 255, 255)
-                p.openingHours != null -> "Öffnungszeiten siehe Details" to Color.argb(150, 255, 255, 255)
-                else -> "Öffnungszeiten unbekannt" to Color.argb(150, 255, 255, 255)
-            }
-            card.addView(text(openText, 12f, openColor, maxLines = 2))
+            card.addView(openPill(p, small = true))
             listContainer.addView(card)
         }
     }
 
-    private fun styleChips() {
-        styleChip(chipOpen, onlyOpen)
-        styleChip(chipOnly, overlay.onlyFocus)
+    /** Kleines Etikett „Geöffnet · bis 20:00 Uhr“ im Spur-Stil. */
+    private fun openPill(p: Place, small: Boolean): TextView {
+        val st = OpeningHours.status(p.openingHours)
+        val (label, fg, bg) = when {
+            st != null && st.open -> Triple(st.text, Ui.OK, Ui.OK_SOFT)
+            st != null -> Triple(st.text, Ui.SOFT_TEXT, Ui.SOFT)
+            !p.detailsLoaded -> Triple("Lade Öffnungszeiten …", Ui.CHIP_TEXT, Ui.CHIP)
+            p.openingHours != null -> Triple("Öffnungszeiten siehe Details", Ui.CHIP_TEXT, Ui.CHIP)
+            else -> Triple("Öffnungszeiten unbekannt", Ui.CHIP_TEXT, Ui.CHIP)
+        }
+        return text(label, if (small) 11f else 13f, fg, Ui.BOLD, maxLines = 2).apply {
+            setPadding(dp(8), dp(3), dp(8), dp(4))
+            background = rounded(bg, 20, Color.TRANSPARENT, 0)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
     }
 
-    private fun styleChip(v: TextView, on: Boolean) {
-        v.setPadding(dp(14), dp(7), dp(14), dp(7))
-        v.setTextColor(if (on) Color.BLACK else Color.WHITE)
-        v.background = rounded(if (on) accent else Color.parseColor("#D9141619"), 18, Color.argb(60, 255, 255, 255), 1)
-        v.text = (if (on) "✓ " else "") + (if (v === chipOpen) getString(R.string.only_open) else getString(R.string.only_target))
+    private fun styleChips() {
+        styleChip(chipOpen, onlyOpen, getString(R.string.only_open))
+        styleChip(chipOnly, overlay.onlyFocus, getString(R.string.only_target))
+        resultCount.setTextColor(Ui.CHIP_TEXT)
+        resultCount.typeface = Ui.BOLD
+        resultCount.setPadding(dp(9), dp(4), dp(9), dp(4))
+        resultCount.background = rounded(Ui.CHIP, 20, Color.TRANSPARENT, 0)
+    }
+
+    private fun styleChip(v: TextView, on: Boolean, label: String) {
+        v.setPadding(dp(14), dp(8), dp(14), dp(8))
+        v.setTextColor(if (on) Color.WHITE else Ui.CHIP_TEXT)
+        v.typeface = Ui.REGULAR
+        v.background = rounded(if (on) Ui.INK else Ui.CHIP, 30, Color.TRANSPARENT, 0)
+        v.elevation = dp(1).toFloat()
+        v.text = label
     }
 
     private fun updateGuideInset() {
@@ -518,10 +527,10 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
 
     private fun renderDetails() {
         val p = detailPlace ?: return
-        // maximal ~70 % der Höhe
+        // maximal ~72 % der Höhe
         detailSheet.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
         detailSheet.post {
-            val max = (resources.displayMetrics.heightPixels * 0.7f).toInt()
+            val max = (resources.displayMetrics.heightPixels * 0.72f).toInt()
             if (detailSheet.height > max) {
                 detailSheet.layoutParams.height = max
                 detailSheet.requestLayout()
@@ -531,66 +540,72 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         val keepTransit = transitBox
         detailContent.removeAllViews()
 
-        // Kopfzeile: Name + Schließen
+        // Kopf: Kategorie (klein, versal) · Name · Schließen
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.TOP
         }
-        head.addView(
-            text(p.name, 21f, Color.WHITE, bold = true).apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            }
-        )
-        head.addView(text("✕", 22f, Color.argb(200, 255, 255, 255)).apply {
-            setPadding(dp(12), 0, 0, dp(8))
-            setOnClickListener { closeDetails() }
+        val titles = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titles.addView(eyebrow(p.category ?: "Ziel"))
+        titles.addView(text(p.name, 26f, Ui.INK, Ui.MEDIUM).apply {
+            letterSpacing = -0.03f
+            setPadding(0, dp(6), 0, 0)
         })
+        p.address?.let { titles.addView(text(it, 14f, Ui.MUTED).apply { setPadding(0, dp(4), 0, 0) }) }
+        head.addView(titles)
+        head.addView(iconButton(R.drawable.ic_close) { closeDetails() })
         detailContent.addView(head)
 
-        listOfNotNull(p.category, p.address).joinToString(" · ").takeIf { it.isNotBlank() }?.let {
-            detailContent.addView(text(it, 14f, Color.argb(200, 255, 255, 255)))
+        // Entfernung + Öffnungsstatus
+        val meta = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(12), 0, 0)
         }
         currentLocation?.let { loc ->
             val d = distanceTo(p, loc)
-            detailContent.addView(
-                text("${ArOverlayView.formatDistance(d)} · ca. ${ArOverlayView.walkMinutes(d)} Min. zu Fuß", 15f, accent, bold = true)
-                    .apply { setPadding(0, dp(6), 0, 0) }
-            )
+            meta.addView(text("${ArOverlayView.formatDistance(d)} · ${ArOverlayView.walkMinutes(d)} Min. zu Fuß", 15f, Ui.ACCENT, Ui.BOLD)
+                .apply { setPadding(0, 0, dp(10), 0) })
         }
+        detailContent.addView(meta)
+        detailContent.addView(openPill(p, small = false).apply {
+            (layoutParams as LinearLayout.LayoutParams).topMargin = dp(8)
+        })
+
+        // Hauptknopf + Werkzeugleiste
+        detailContent.addView(primaryButton("Route zu Fuß", R.drawable.ic_navigation) { openMaps(p, "walking") })
+
+        val tools = mutableListOf<Triple<String, Int, () -> Unit>>()
+        tools += Triple("Bus & Bahn", R.drawable.ic_train) { loadTransit(p) }
+        p.phone?.let { phone -> tools += Triple("Anrufen", R.drawable.ic_phone) { dial(phone) } }
+        p.website?.let { site -> tools += Triple("Webseite", R.drawable.ic_globe) { openWeb(site) } }
+        tools += Triple("Teilen", R.drawable.ic_share) { share(p) }
+        val saved = favorites.contains(p)
+        tools += Triple(if (saved) "Gemerkt" else "Merken", if (saved) R.drawable.ic_star_filled else R.drawable.ic_star) {
+            val nowSaved = favorites.toggle(p)
+            status(if (nowSaved) "„${p.name}“ gemerkt." else "„${p.name}“ nicht mehr gemerkt.")
+            renderDetails()
+        }
+        tools += Triple(if (overlay.onlyFocus) "Alle zeigen" else "Nur Ziel", if (overlay.onlyFocus) R.drawable.ic_eye else R.drawable.ic_target) {
+            overlay.onlyFocus = !overlay.onlyFocus
+            styleChips()
+            renderDetails()
+        }
+        toolBar(tools)
 
         // Öffnungszeiten
         section("Öffnungszeiten")
         val hours = p.openingHours
         when {
-            !p.detailsLoaded -> detailContent.addView(text("Lade …", 14f, Color.argb(160, 255, 255, 255)))
-            hours == null -> detailContent.addView(text("Keine Öffnungszeiten hinterlegt", 14f, Color.argb(160, 255, 255, 255)))
-            else -> {
-                OpeningHours.status(hours)?.let {
-                    detailContent.addView(text(it.text, 15f, if (it.open) green else red, bold = true))
-                }
-                detailContent.addView(text(OpeningHours.pretty(hours), 14f, Color.argb(210, 255, 255, 255)))
-            }
+            !p.detailsLoaded -> detailContent.addView(text("Lade …", 14f, Ui.MUTED))
+            hours == null -> detailContent.addView(text("Keine Öffnungszeiten hinterlegt", 14f, Ui.MUTED))
+            else -> detailContent.addView(
+                text(OpeningHours.pretty(hours), 15f, Ui.INK_SOFT).apply { setLineSpacing(dp(4).toFloat(), 1f) }
+            )
         }
-
-        // Knöpfe
-        section("Aktionen")
-        val buttons = mutableListOf<Pair<String, () -> Unit>>()
-        buttons += "🚶 Route" to { openMaps(p, "walking") }
-        buttons += "🚆 Bus & Bahn" to { loadTransit(p) }
-        p.phone?.let { phone -> buttons += "📞 Anrufen" to { dial(phone) } }
-        p.website?.let { site -> buttons += "🌐 Webseite" to { openWeb(site) } }
-        buttons += "📤 Teilen" to { share(p) }
-        buttons += (if (favorites.contains(p)) "★ Gemerkt" else "☆ Merken") to {
-            val saved = favorites.toggle(p)
-            status(if (saved) "„${p.name}“ gemerkt." else "„${p.name}“ nicht mehr gemerkt.")
-            renderDetails()
-        }
-        buttons += (if (overlay.onlyFocus) "👁 Alle zeigen" else "🎯 Nur dieses Ziel") to {
-            overlay.onlyFocus = !overlay.onlyFocus
-            styleChips()
-            renderDetails()
-        }
-        buttonGrid(buttons)
 
         // Bus & Bahn (bleibt beim Neuzeichnen erhalten)
         val box = keepTransit ?: LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -604,7 +619,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         val loc = currentLocation ?: return
         box.removeAllViews()
         box.addView(sectionView("Mit Bus & Bahn"))
-        box.addView(text("Suche Verbindungen …", 14f, Color.argb(170, 255, 255, 255)))
+        box.addView(text("Suche Verbindungen …", 14f, Ui.MUTED))
         detailSheet.post { detailSheet.smoothScrollTo(0, box.top) }
 
         executor.execute {
@@ -615,33 +630,54 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 box.addView(sectionView("Mit Bus & Bahn"))
                 val options = result.getOrNull().orEmpty()
                 if (options.isEmpty()) {
-                    box.addView(text("Gerade keine Verbindungen abrufbar.", 14f, Color.argb(170, 255, 255, 255)))
+                    box.addView(text("Gerade keine Verbindungen abrufbar.", 14f, Ui.MUTED))
                 } else {
-                    for (o in options) {
-                        val row = LinearLayout(this).apply {
-                            orientation = LinearLayout.VERTICAL
-                            setPadding(dp(12), dp(10), dp(12), dp(10))
-                            background = rounded(Color.argb(30, 255, 255, 255), 12, Color.TRANSPARENT, 0)
-                            layoutParams = LinearLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                            ).apply { topMargin = dp(6) }
-                        }
-                        val changes = when (o.changes) {
-                            0 -> "direkt"
-                            1 -> "1× umsteigen"
-                            else -> "${o.changes}× umsteigen"
-                        }
-                        row.addView(text("${o.departure} → ${o.arrival} · ${o.minutes} Min. · $changes", 15f, Color.WHITE, bold = true))
-                        row.addView(text(o.lines, 14f, accent))
-                        o.firstStop?.let { row.addView(text("ab $it", 13f, Color.argb(170, 255, 255, 255))) }
-                        box.addView(row)
-                    }
+                    for (o in options) box.addView(transitRow(o))
                 }
-                buttonGrid(listOf("🗺 In Google Maps öffnen" to { openMaps(p, "transit") }), into = box, perRow = 1)
-                box.addView(text("Verbindungsdaten: DB / transport.rest", 10f, Color.argb(120, 255, 255, 255))
-                    .apply { setPadding(0, dp(6), 0, 0) })
+                box.addView(secondaryButton("In Google Maps öffnen", R.drawable.ic_map) { openMaps(p, "transit") })
+                box.addView(text("Verbindungsdaten: DB über transport.rest", 11f, Ui.LABEL).apply { setPadding(0, dp(8), 0, 0) })
             }
         }
+    }
+
+    private fun transitRow(o: Transit.Option): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = rounded(Ui.CARD, 15, Ui.BORDER, 1)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(8) }
+        }
+        val changes = when (o.changes) {
+            0 -> "direkt"
+            1 -> "1× umsteigen"
+            else -> "${o.changes}× umsteigen"
+        }
+        row.addView(text("${o.departure} → ${o.arrival}", 17f, Ui.INK, Ui.MEDIUM).apply { fontFeatureSettings = "tnum" })
+        row.addView(text("${o.minutes} Min. · $changes", 13f, Ui.MUTED).apply { setPadding(0, dp(2), 0, dp(8)) })
+        val badges = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        if (o.lineList.isEmpty()) {
+            badges.addView(text("Nur zu Fuß", 13f, Ui.CHIP_TEXT))
+        } else {
+            o.lineList.forEachIndexed { i, name ->
+                if (i > 0) badges.addView(text("›", 15f, Ui.LABEL).apply { setPadding(dp(6), 0, dp(6), 0) })
+                badges.addView(text(name, 13f, Color.WHITE, Ui.BOLD, maxLines = 1).apply {
+                    gravity = Gravity.CENTER
+                    minWidth = dp(34)
+                    setPadding(dp(7), dp(2), dp(7), dp(2))
+                    background = rounded(Ui.lineColor(name), 7, Color.TRANSPARENT, 0)
+                })
+            }
+        }
+        row.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(badges)
+        })
+        o.firstStop?.let { row.addView(text("ab $it", 13f, Ui.MUTED).apply { setPadding(0, dp(8), 0, 0) }) }
+        return row
     }
 
     // ---------- Aktionen ----------
@@ -693,7 +729,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             "Kompass kalibrieren – so geht's",
             "Über Peil & Datenquellen"
         )
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.PeilDialog)
             .setTitle("Peil ${versionName()}")
             .setItems(items) { _, which ->
                 when (which) {
@@ -727,55 +763,105 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     }
 
     private fun info(title: String, msg: String) {
-        AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show()
+        AlertDialog.Builder(this, R.style.PeilDialog).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show()
     }
 
     private fun versionName(): String =
         runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
 
-    // ---------- UI-Helfer ----------
+    // ---------- UI-Helfer (Spur-Stil) ----------
 
     private fun section(title: String) {
         detailContent.addView(sectionView(title))
     }
 
-    private fun sectionView(title: String) = text(title.uppercase(), 11f, Color.argb(140, 255, 255, 255), bold = true)
-        .apply { setPadding(0, dp(18), 0, dp(6)) }
+    private fun sectionView(title: String) = eyebrow(title).apply { setPadding(0, dp(22), 0, dp(8)) }
 
-    private fun buttonGrid(buttons: List<Pair<String, () -> Unit>>, into: LinearLayout = detailContent, perRow: Int = 2) {
-        buttons.chunked(perRow).forEach { rowItems ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(8) }
-            }
-            rowItems.forEachIndexed { i, (label, action) ->
-                row.addView(text(label, 14f, Color.WHITE, bold = true, maxLines = 1).apply {
+    private fun eyebrow(title: String) = text(title.uppercase(), 12f, Ui.LABEL, Ui.BOLD).apply { letterSpacing = 0.14f }
+
+    private fun primaryButton(label: String, icon: Int, action: () -> Unit) =
+        text(label, 16f, Color.WHITE, Ui.MEDIUM, maxLines = 1).apply {
+            gravity = Gravity.CENTER
+            minHeight = dp(52)
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            background = rounded(Ui.ACCENT, 13, Color.TRANSPARENT, 0)
+            setCompoundDrawablesRelativeWithIntrinsicBounds(tinted(icon, Color.WHITE, 20), null, null, null)
+            compoundDrawablePadding = dp(8)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(16) }
+            setOnClickListener { action() }
+        }
+
+    private fun secondaryButton(label: String, icon: Int, action: () -> Unit) =
+        text(label, 15f, Ui.INK, Ui.REGULAR, maxLines = 1).apply {
+            gravity = Gravity.CENTER
+            minHeight = dp(50)
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+            background = rounded(Ui.CARD, 13, Ui.BORDER_STRONG, 1)
+            setCompoundDrawablesRelativeWithIntrinsicBounds(tinted(icon, Ui.INK, 18), null, null, null)
+            compoundDrawablePadding = dp(8)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(12) }
+            setOnClickListener { action() }
+        }
+
+    /** Werkzeugleiste wie in Spur: weiße Leiste mit Icon über kleinem Text. */
+    private fun toolBar(tools: List<Triple<String, Int, () -> Unit>>) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            background = rounded(Ui.CARD, 16, Ui.BORDER, 1)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(12) }
+        }
+        val perRow = if (tools.size <= 4) tools.size else 3
+        tools.chunked(perRow).forEach { rowItems ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            rowItems.forEach { (label, icon, action) ->
+                row.addView(text(label, 12f, Ui.CHIP_TEXT, maxLines = 1).apply {
                     gravity = Gravity.CENTER
-                    setPadding(dp(8), dp(12), dp(8), dp(12))
-                    background = rounded(Color.argb(38, 255, 255, 255), 14, Color.argb(50, 255, 255, 255), 1)
+                    setPadding(dp(4), dp(10), dp(4), dp(9))
+                    setCompoundDrawablesRelativeWithIntrinsicBounds(null, tinted(icon, Ui.CHIP_TEXT, 22), null, null)
+                    compoundDrawablePadding = dp(5)
+                    background = pressable()
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                        .apply { if (i > 0) marginStart = dp(8) }
                     setOnClickListener { action() }
                 })
             }
-            // letzte Reihe auffüllen, damit die Knöpfe gleich breit bleiben
             repeat(perRow - rowItems.size) {
-                row.addView(View(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f).apply { marginStart = dp(8) }
-                })
+                row.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
             }
-            into.addView(row)
+            box.addView(row)
         }
+        detailContent.addView(box)
     }
 
-    private fun text(s: String, sizeSp: Float, color: Int, bold: Boolean = false, maxLines: Int = 0) =
+    private fun iconButton(icon: Int, action: () -> Unit) = android.widget.ImageView(this).apply {
+        setImageDrawable(tinted(icon, Ui.INK, 20))
+        scaleType = android.widget.ImageView.ScaleType.CENTER
+        background = rounded(Ui.PRESSED, 22, Color.TRANSPARENT, 0)
+        layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply { marginStart = dp(10) }
+        contentDescription = "Schließen"
+        setOnClickListener { action() }
+    }
+
+    private fun tinted(res: Int, color: Int, sizeDp: Int) =
+        ContextCompat.getDrawable(this, res)!!.mutate().apply {
+            setTint(color)
+            setBounds(0, 0, dp(sizeDp), dp(sizeDp))
+        }
+
+    private fun pressable() = android.graphics.drawable.StateListDrawable().apply {
+        addState(intArrayOf(android.R.attr.state_pressed), rounded(Ui.CHIP, 12, Color.TRANSPARENT, 0))
+        addState(intArrayOf(), rounded(Color.TRANSPARENT, 12, Color.TRANSPARENT, 0))
+    }
+
+    private fun text(s: String, sizeSp: Float, color: Int, face: Typeface = Ui.REGULAR, maxLines: Int = 0) =
         TextView(this).apply {
             text = s
             textSize = sizeSp
             setTextColor(color)
-            if (bold) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            typeface = face
             if (maxLines > 0) {
                 this.maxLines = maxLines
                 ellipsize = TextUtils.TruncateAt.END

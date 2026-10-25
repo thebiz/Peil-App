@@ -68,14 +68,35 @@ class ArOverlayView @JvmOverloads constructor(
     private val density = resources.displayMetrics.density
     private fun dp(v: Float) = v * density
 
-    private val accent = Color.parseColor("#FFB547")
-    private val panelColor = Color.parseColor("#E6141619")
+    private val accent = Ui.ACCENT
+    private val shadowColor = Color.argb(45, 20, 25, 20)
 
-    private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = panelColor }
+    // Weiße Karten mit feinem Rand und weichem Schatten – wie in Spur
+    private val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Ui.CARD
+        setShadowLayer(dp(8f), 0f, dp(2f), shadowColor)
+    }
+    private val cardBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+        color = Ui.BORDER
+    }
     private val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
-    private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 255, 255, 255) }
-    private val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-    private val stemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(2f) }
+    private val softPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Ui.SOFT }
+    private val inkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Ui.INK }
+    private val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        setShadowLayer(dp(3f), 0f, dp(1f), shadowColor)
+    }
+    private val dotRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(3f)
+        color = Ui.INK
+    }
+    private val stemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeWidth = dp(2.5f)
+        strokeCap = Paint.Cap.ROUND
+    }
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2f)
@@ -83,35 +104,46 @@ class ArOverlayView @JvmOverloads constructor(
     }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = dp(1f)
-        color = Color.argb(70, 255, 255, 255)
+        strokeWidth = dp(1.5f)
+        color = Ui.RING
     }
     private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
+        color = Ui.INK
         textSize = dp(15f)
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        typeface = Ui.MEDIUM
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(220, 255, 255, 255)
+        color = Ui.MUTED
         textSize = dp(13f)
+        typeface = Ui.REGULAR
     }
     private val smallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(160, 255, 255, 255)
+        color = Ui.LABEL
         textSize = dp(11f)
+        typeface = Ui.BOLD
+        letterSpacing = 0.12f
     }
     private val bigTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
+        color = Ui.INK
         textSize = dp(19f)
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        typeface = Ui.MEDIUM
+        letterSpacing = -0.02f
     }
     private val accentTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = accent
         textSize = dp(15f)
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        typeface = Ui.BOLD
     }
     private val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
+        color = Ui.SOFT_TEXT
         textSize = dp(14f)
+        typeface = Ui.MEDIUM
+        textAlign = Paint.Align.CENTER
+    }
+    private val northPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = accent
+        textSize = dp(15f)
+        typeface = Ui.BOLD
         textAlign = Paint.Align.CENTER
     }
     private val arrowPath = Path()
@@ -214,7 +246,8 @@ class ArOverlayView @JvmOverloads constructor(
         } else {
             // außerhalb des Bildes: kleiner Punkt am Rand
             val x = if (rel > 0) width - dp(10f) else dp(10f)
-            canvas.drawCircle(x, y, dp(if (isFocus) 7f else 4f), if (isFocus) accentPaint else dimPaint)
+            canvas.drawCircle(x, y, dp(if (isFocus) 8f else 5f), whitePaint)
+            canvas.drawCircle(x, y, dp(if (isFocus) 6f else 3.5f), if (isFocus) accentPaint else inkPaint)
         }
     }
 
@@ -231,10 +264,19 @@ class ArOverlayView @JvmOverloads constructor(
 
         stemPaint.color = if (isFocus) accent else Color.WHITE
         canvas.drawLine(x, y, x, y + dp(22f), stemPaint)
-        canvas.drawCircle(x, y + dp(22f), dp(if (isFocus) 7f else 5f), if (isFocus) accentPaint else whitePaint)
+        val dotY = y + dp(22f)
+        if (isFocus) {
+            canvas.drawCircle(x, dotY, dp(8f), whitePaint)
+            canvas.drawCircle(x, dotY, dp(6f), accentPaint)
+        } else {
+            canvas.drawCircle(x, dotY, dp(6f), whitePaint)
+            dotRing.strokeWidth = dp(2.5f)
+            canvas.drawCircle(x, dotY, dp(4.5f), dotRing)
+        }
 
-        canvas.drawRoundRect(box, dp(12f), dp(12f), panelPaint)
-        if (isFocus) canvas.drawRoundRect(box, dp(12f), dp(12f), borderPaint)
+        val radius = dp(13f)
+        canvas.drawRoundRect(box, radius, radius, cardPaint)
+        canvas.drawRoundRect(box, radius, radius, if (isFocus) borderPaint else cardBorder)
         canvas.drawText(name, box.left + pad, box.top + pad + tp.textSize * 0.85f, tp)
         canvas.drawText(sub, box.left + pad, box.bottom - pad, if (isFocus) accentTextPaint else textPaint)
 
@@ -243,7 +285,7 @@ class ArOverlayView @JvmOverloads constructor(
 
     /** Kartenansicht von oben: Mitte = du, oben = Blickrichtung. */
     private fun drawRadar(canvas: Canvas, visible: List<Target>, focus: Target) {
-        canvas.drawColor(Color.argb(215, 10, 12, 15))
+        canvas.drawColor(Color.argb(245, 245, 245, 242))
         val w = width.toFloat()
         val cx = w / 2
         val cy = height * 0.42f
@@ -260,7 +302,7 @@ class ArOverlayView @JvmOverloads constructor(
         val nAng = Math.toRadians(-heading)
         val nx = (cx + sin(nAng) * (radius + dp(16f))).toFloat()
         val ny = (cy - cos(nAng) * (radius + dp(16f))).toFloat()
-        canvas.drawText("N", nx, ny + centerPaint.textSize * 0.35f, centerPaint)
+        canvas.drawText("N", nx, ny + northPaint.textSize * 0.35f, northPaint)
 
         // du
         arrowPath.reset()
@@ -269,7 +311,7 @@ class ArOverlayView @JvmOverloads constructor(
         arrowPath.lineTo(cx, cy + dp(3f))
         arrowPath.lineTo(cx - dp(8f), cy + dp(8f))
         arrowPath.close()
-        canvas.drawPath(arrowPath, whitePaint)
+        canvas.drawPath(arrowPath, inkPaint)
 
         val ordered = visible.filter { it !== focus } + focus
         for (t in ordered) {
@@ -278,7 +320,14 @@ class ArOverlayView @JvmOverloads constructor(
             val r = radius * min(t.distance / scale, 1f)
             val x = (cx + sin(rel) * r).toFloat()
             val y = (cy - cos(rel) * r).toFloat()
-            canvas.drawCircle(x, y, dp(if (isFocus) 9f else 6f), if (isFocus) accentPaint else whitePaint)
+            if (isFocus) {
+                canvas.drawCircle(x, y, dp(11f), softPaint)
+                canvas.drawCircle(x, y, dp(7f), accentPaint)
+            } else {
+                canvas.drawCircle(x, y, dp(6f), whitePaint)
+                dotRing.strokeWidth = dp(2.5f)
+                canvas.drawCircle(x, y, dp(4.5f), dotRing)
+            }
             if (isFocus) {
                 val label = ellipsize(t.place.name, 22)
                 val tw = titlePaint.measureText(label)
@@ -289,7 +338,7 @@ class ArOverlayView @JvmOverloads constructor(
             hitAreas.add(RectF(x - hit, y - hit, x + hit, y + hit) to t.place)
         }
 
-        canvas.drawText("Kartenansicht · Handy aufrichten für die Kamera", cx, cy + radius + dp(40f), centerPaint)
+        canvas.drawText("KARTENANSICHT · HANDY AUFRICHTEN FÜR KAMERA", cx, cy + radius + dp(44f), Paint(smallPaint).apply { textAlign = Paint.Align.CENTER })
     }
 
     private fun drawGuide(canvas: Canvas, t: Target) {
@@ -299,12 +348,13 @@ class ArOverlayView @JvmOverloads constructor(
         val bottom = height - bottomInset - dp(8f)
         val panel = RectF(margin, bottom - panelH, w - margin, bottom)
         guideRect.set(panel)
-        canvas.drawRoundRect(panel, dp(22f), dp(22f), panelPaint)
+        canvas.drawRoundRect(panel, dp(21f), dp(21f), cardPaint)
+        canvas.drawRoundRect(panel, dp(21f), dp(21f), cardBorder)
 
         val r = dp(38f)
         val cx = panel.left + dp(18f) + r
         val cy = panel.centerY()
-        canvas.drawCircle(cx, cy, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(40, 255, 181, 71) })
+        canvas.drawCircle(cx, cy, r, softPaint)
         val rel = relAngle(t.bearing)
         canvas.save()
         canvas.rotate(rel.toFloat(), cx, cy)
@@ -329,7 +379,7 @@ class ArOverlayView @JvmOverloads constructor(
         line += dp(22f)
         canvas.drawText(directionText(rel), tx, line, textPaint)
         line += dp(19f)
-        canvas.drawText("Tippen für Details ›", tx, line, smallPaint)
+        canvas.drawText("TIPPEN FÜR DETAILS ›", tx, line, smallPaint)
 
         val hdg = "${compassWord(heading)} ${heading.roundToInt()}°"
         val small = Paint(smallPaint).apply { textAlign = Paint.Align.RIGHT }
@@ -341,7 +391,7 @@ class ArOverlayView @JvmOverloads constructor(
         val tw = centerPaint.measureText(msg) + dp(28f)
         val y = height * 0.62f
         val box = RectF(w / 2 - tw / 2, y - dp(18f), w / 2 + tw / 2, y + dp(18f))
-        canvas.drawRoundRect(box, dp(18f), dp(18f), panelPaint)
+        canvas.drawRoundRect(box, dp(15f), dp(15f), softPaint)
         canvas.drawText(msg, w / 2, y + centerPaint.textSize * 0.35f, centerPaint)
     }
 

@@ -3,7 +3,7 @@
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/black">
+    android:background="#F5F5F2">
 
     <androidx.camera.view.PreviewView
         android:id="@+id/preview"
@@ -15,7 +15,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Oben: Suche, Mikrofon, Zahnrad -->
+    <!-- Oben: Suche, Mikrofon, Einstellungen -->
     <LinearLayout
         android:id="@+id/top_bar"
         android:layout_width="match_parent"
@@ -27,7 +27,7 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="54dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -36,57 +36,71 @@
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:background="@drawable/search_bg"
+                android:elevation="3dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingStart="20dp"
-                android:paddingEnd="6dp">
+                android:paddingStart="14dp"
+                android:paddingEnd="4dp">
+
+                <ImageView
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_search"
+                    android:tint="#ED682F" />
 
                 <EditText
                     android:id="@+id/search_field"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
+                    android:layout_marginStart="10dp"
                     android:layout_weight="1"
                     android:background="@null"
+                    android:fontFamily="sans-serif"
                     android:hint="@string/search_hint"
                     android:imeOptions="actionSearch"
                     android:importantForAutofill="no"
                     android:inputType="text"
                     android:singleLine="true"
-                    android:textColor="#FFFFFF"
-                    android:textColorHint="#99FFFFFF"
-                    android:textSize="17sp" />
+                    android:textColor="#252927"
+                    android:textColorHint="#9A9F96"
+                    android:textSize="16sp" />
 
                 <ImageButton
                     android:id="@+id/mic_button"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/mic"
-                    android:src="@drawable/ic_mic" />
+                    android:src="@drawable/ic_mic"
+                    android:tint="#ED682F" />
             </LinearLayout>
 
             <ImageButton
                 android:id="@+id/settings_button"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
+                android:layout_width="54dp"
+                android:layout_height="54dp"
                 android:layout_marginStart="8dp"
-                android:background="@drawable/search_bg"
+                android:background="@drawable/round_button_bg"
                 android:contentDescription="@string/settings"
-                android:src="@drawable/ic_settings" />
+                android:elevation="3dp"
+                android:src="@drawable/ic_settings"
+                android:tint="#252927" />
         </LinearLayout>
 
         <TextView
             android:id="@+id/status"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:shadowColor="#CC000000"
-            android:shadowDy="1"
-            android:shadowRadius="4"
+            android:background="@drawable/status_bg"
+            android:fontFamily="sans-serif"
+            android:paddingStart="12dp"
+            android:paddingTop="7dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="7dp"
             android:text="@string/status_start"
-            android:textColor="#FFFFFF"
+            android:textColor="#3D433F"
             android:textSize="13sp" />
     </LinearLayout>
 
@@ -113,7 +127,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/only_open"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
 
             <TextView
                 android:id="@+id/chip_only"
@@ -121,19 +135,18 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:text="@string/only_target"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
 
             <TextView
                 android:id="@+id/result_count"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="end"
-                android:shadowColor="#CC000000"
-                android:shadowDy="1"
-                android:shadowRadius="4"
-                android:textColor="#CCFFFFFF"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <HorizontalScrollView
@@ -143,7 +156,9 @@
             android:layout_marginTop="8dp"
             android:clipToPadding="false"
             android:paddingStart="16dp"
+            android:paddingTop="2dp"
             android:paddingEnd="8dp"
+            android:paddingBottom="4dp"
             android:scrollbars="none">
 
             <LinearLayout
@@ -154,15 +169,18 @@
         </HorizontalScrollView>
 
         <TextView
-            android:layout_width="match_parent"
+            android:id="@+id/attribution"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
             android:layout_marginTop="6dp"
-            android:gravity="center"
-            android:shadowColor="#CC000000"
-            android:shadowDy="1"
-            android:shadowRadius="3"
+            android:background="@drawable/status_bg"
+            android:paddingStart="8dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="2dp"
             android:text="@string/attribution"
-            android:textColor="#99FFFFFF"
+            android:textColor="#7E8778"
             android:textSize="10sp" />
     </LinearLayout>
 
@@ -175,6 +193,7 @@
         android:layout_margin="8dp"
         android:background="@drawable/sheet_bg"
         android:clickable="true"
+        android:elevation="12dp"
         android:focusable="true"
         android:visibility="gone">
 
@@ -183,6 +202,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="20dp" />
+            android:paddingStart="20dp"
+            android:paddingTop="18dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="20dp" />
     </ScrollView>
 </FrameLayout>

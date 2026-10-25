@@ -17,6 +17,7 @@ object Transit {
         val arrival: String,
         val minutes: Long,
         val lines: String,
+        val lineList: List<String>,
         val changes: Int,
         val firstStop: String?
     )
@@ -54,6 +55,7 @@ object Transit {
                     arrival = arr.format(hhmm),
                     minutes = Duration.between(dep, arr).toMinutes(),
                     lines = if (lineNames.isEmpty()) "Nur zu Fuß" else lineNames.joinToString(" → "),
+                    lineList = lineNames.toList(),
                     changes = (lineNames.size - 1).coerceAtLeast(0),
                     firstStop = firstStop
                 )
