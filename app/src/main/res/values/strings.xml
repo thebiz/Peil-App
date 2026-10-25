@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Peil</string>
+    <string name="search_hint">Was suchst du? z. B. Fielmann</string>
+    <string name="mic">Spracheingabe</string>
+    <string name="status_start">Sag oder tipp, was du suchst – dann Handy hochhalten.</string>
+</resources>
