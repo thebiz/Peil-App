@@ -737,7 +737,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         })
 
         // Hauptknopf + Werkzeugleiste
-        detailContent.addView(primaryButton("Route zu Fuß", R.drawable.ic_navigation) { openMaps(p, "walking") })
+        // Routen: zu Fuß (Hauptknopf), Fahrrad und E-Scooter (beide über die Fahrrad-Route)
+        routeRow(p)
 
         val tools = mutableListOf<Triple<String, Int, () -> Unit>>()
         tools += Triple("Bus & Bahn", R.drawable.ic_train) { loadTransit(p) }
@@ -773,6 +774,52 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         (box.parent as? ViewGroup)?.removeView(box)
         transitBox = box
         detailContent.addView(box)
+    }
+
+    /** Drei Routenknöpfe nebeneinander, jeweils mit geschätzter Zeit. */
+    private fun routeRow(p: Place) {
+        val d = currentLocation?.let { distanceTo(p, it) }
+        // grobe Tempi: zu Fuß 4,8 km/h, Fahrrad 15 km/h, E-Scooter 18 km/h
+        fun eta(metersPerMin: Double): String =
+            if (d == null) "" else "ca.\u00A0${maxOf(1, Math.ceil(d / metersPerMin).toInt())}\u00A0Min."
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(16) }
+        }
+        val items = listOf(
+            Triple("Zu Fuß", R.drawable.ic_walk, eta(80.0)) to { openMaps(p, "walking") },
+            Triple("Fahrrad", R.drawable.ic_bike, eta(250.0)) to { openMaps(p, "bicycling") },
+            Triple("E-Scooter", R.drawable.ic_scooter, eta(300.0)) to { openMaps(p, "bicycling") }
+        )
+        items.forEachIndexed { i, (info, action) ->
+            val (label, icon, time) = info
+            val primary = i == 0
+            val fg = if (primary) Color.WHITE else Ui.INK
+            val btn = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(6), dp(10), dp(6), dp(10))
+                minimumHeight = dp(72)
+                background = if (primary) rounded(Ui.ACCENT, 13, Color.TRANSPARENT, 0) else rounded(Ui.CARD, 13, Ui.BORDER_STRONG, 1)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { if (i > 0) marginStart = dp(8) }
+                setOnClickListener { action() }
+            }
+            btn.addView(android.widget.ImageView(this).apply {
+                setImageDrawable(tinted(icon, fg, 22))
+                layoutParams = LinearLayout.LayoutParams(dp(22), dp(22))
+            })
+            btn.addView(text(label, 14f, fg, Ui.MEDIUM, maxLines = 1).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(4), 0, 0)
+            })
+            if (time.isNotEmpty()) btn.addView(text(time, 12f, if (primary) Color.argb(220, 255, 255, 255) else Ui.MUTED, maxLines = 1).apply {
+                gravity = Gravity.CENTER
+            })
+            row.addView(btn)
+        }
+        detailContent.addView(row)
     }
 
     private fun loadTransit(p: Place) {
