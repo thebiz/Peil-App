@@ -11,10 +11,11 @@ android {
         applicationId = "com.john.peil"
         minSdk = 26
         targetSdk = 35
-        // Jeder GitHub-Lauf bekommt automatisch eine höhere Versionsnummer (für den Updater)
+        // Sichtbare Version steht in version.txt (z. B. 0.9). Die interne Zählnummer
+        // für den Updater erhöht GitHub bei jedem Bau automatisch.
         val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = runNumber
-        versionName = "v$runNumber"
+        versionName = rootProject.file("version.txt").readText().trim()
     }
 
     // Fester Schlüssel im Repo, damit sich neue Versionen einfach über die alte installieren lassen.

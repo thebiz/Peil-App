@@ -373,7 +373,7 @@ class ArOverlayView @JvmOverloads constructor(
         canvas.drawText(ellipsize(t.place.name, maxChars), tx, line, bigTitlePaint)
         line += dp(24f)
         canvas.drawText(
-            "${formatDistance(t.distance)} · ca. ${walkMinutes(t.distance)} Min. zu Fuß",
+            "${formatDistance(t.distance)} · ca.\u00A0${walkMinutes(t.distance)}\u00A0Min. zu Fuß",
             tx, line, accentTextPaint
         )
         line += dp(22f)
@@ -425,8 +425,8 @@ class ArOverlayView @JvmOverloads constructor(
     private fun directionText(rel: Double): String = when {
         abs(rel) <= 10 -> "Geradeaus"
         abs(rel) >= 150 -> "Hinter dir – umdrehen"
-        rel > 0 -> "Nach rechts drehen (${rel.roundToInt()}°)"
-        else -> "Nach links drehen (${(-rel).roundToInt()}°)"
+        rel > 0 -> "Nach rechts drehen · ${rel.roundToInt()}°"
+        else -> "Nach links drehen · ${(-rel).roundToInt()}°"
     }
 
     private fun compassWord(deg: Double): String {
@@ -444,9 +444,9 @@ class ArOverlayView @JvmOverloads constructor(
 
     companion object {
         fun formatDistance(m: Float): String = when {
-            m < 100 -> "${max(5, (m / 5).roundToInt() * 5)} m"
-            m < 1000 -> "${(m / 10).roundToInt() * 10} m"
-            else -> String.format(Locale.GERMANY, "%.1f km", m / 1000f)
+            m < 100 -> "${max(5, (m / 5).roundToInt() * 5)}\u202Fm"
+            m < 1000 -> "${(m / 10).roundToInt() * 10}\u202Fm"
+            else -> String.format(Locale.GERMANY, "%.1f\u202Fkm", m / 1000f)
         }
 
         /** ca. 4,8 km/h Gehtempo */

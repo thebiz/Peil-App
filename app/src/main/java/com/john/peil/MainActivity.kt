@@ -171,6 +171,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         }
         findViewById<ImageButton>(R.id.mic_button).setOnClickListener { startSpeech() }
         findViewById<ImageButton>(R.id.settings_button).setOnClickListener { showSettings() }
+        findViewById<ImageButton>(R.id.pin_button).setOnClickListener { showPinMenu() }
 
         chipOpen.setOnClickListener {
             onlyOpen = !onlyOpen
@@ -192,7 +193,10 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             status("Dein Handy hat keinen Lagesensor – die Richtung kann ich leider nicht anzeigen.")
         }
 
-        if (savedInstanceState == null) updater.check()
+        if (savedInstanceState == null) {
+            updater.check()
+            handleIncoming(intent)
+        }
 
         permissionLauncher.launch(
             arrayOf(
@@ -211,6 +215,17 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         if (hasLocationPermission()) startLocation()
         if (!cameraStarted && hasPermission(Manifest.permission.CAMERA)) startCamera()
         updater.resumePendingInstall()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncoming(intent)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) checkClipboard()
     }
 
     override fun onPause() {
@@ -366,7 +381,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 result.onSuccess { places ->
                     showPlaces(places)
                     if (places.isEmpty()) {
-                        status("Nichts gefunden für „$q“ im Umkreis von 15 km.")
+                        status("Nichts gefunden für „$q“ im Umkreis von 15\u202Fkm.")
                     } else {
                         status("${places.size}× „$q“ gefunden – dreh dich mal um.")
                     }
@@ -438,7 +453,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             val isSel = p === focus
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setPadding(dp(16), dp(13), dp(16), dp(14))
                 background = rounded(Ui.CARD, 18, if (isSel) Ui.ACCENT else Ui.BORDER, if (isSel) 2 else 1)
                 elevation = dp(2).toFloat()
                 layoutParams = LinearLayout.LayoutParams(dp(176), ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -449,7 +464,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             if (loc != null) {
                 val d = distanceTo(p, loc)
                 card.addView(
-                    text("${ArOverlayView.formatDistance(d)} · ${ArOverlayView.walkMinutes(d)} Min.", 13f, Ui.ACCENT, Ui.BOLD)
+                    text("${ArOverlayView.formatDistance(d)} · ${ArOverlayView.walkMinutes(d)}\u00A0Min.", 13f, Ui.ACCENT, Ui.BOLD)
                         .apply { setPadding(0, dp(3), 0, dp(6)) }
                 )
             }
@@ -463,13 +478,13 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         val st = OpeningHours.status(p.openingHours)
         val (label, fg, bg) = when {
             st != null && st.open -> Triple(st.text, Ui.OK, Ui.OK_SOFT)
-            st != null -> Triple(st.text, Ui.SOFT_TEXT, Ui.SOFT)
+            st != null -> Triple(st.text, Ui.CLOSED, Ui.CLOSED_SOFT)
             !p.detailsLoaded -> Triple("Lade Öffnungszeiten …", Ui.CHIP_TEXT, Ui.CHIP)
             p.openingHours != null -> Triple("Öffnungszeiten siehe Details", Ui.CHIP_TEXT, Ui.CHIP)
             else -> Triple("Öffnungszeiten unbekannt", Ui.CHIP_TEXT, Ui.CHIP)
         }
         return text(label, if (small) 11f else 13f, fg, Ui.BOLD, maxLines = 2).apply {
-            setPadding(dp(8), dp(3), dp(8), dp(4))
+            setPadding(dp(10), dp(4), dp(10), dp(5))
             background = rounded(bg, 20, Color.TRANSPARENT, 0)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
@@ -567,7 +582,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         }
         currentLocation?.let { loc ->
             val d = distanceTo(p, loc)
-            meta.addView(text("${ArOverlayView.formatDistance(d)} · ${ArOverlayView.walkMinutes(d)} Min. zu Fuß", 15f, Ui.ACCENT, Ui.BOLD)
+            meta.addView(text("${ArOverlayView.formatDistance(d)} · ca.\u00A0${ArOverlayView.walkMinutes(d)}\u00A0Min. zu Fuß", 15f, Ui.ACCENT, Ui.BOLD)
                 .apply { setPadding(0, 0, dp(10), 0) })
         }
         detailContent.addView(meta)
@@ -654,7 +669,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             else -> "${o.changes}× umsteigen"
         }
         row.addView(text("${o.departure} → ${o.arrival}", 17f, Ui.INK, Ui.MEDIUM).apply { fontFeatureSettings = "tnum" })
-        row.addView(text("${o.minutes} Min. · $changes", 13f, Ui.MUTED).apply { setPadding(0, dp(2), 0, dp(8)) })
+        row.addView(text("${o.minutes}\u00A0Min. · $changes", 13f, Ui.MUTED).apply { setPadding(0, dp(2), 0, dp(8)) })
         val badges = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -719,6 +734,127 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         }
     }
 
+    // ---------- Mein Standort: merken & senden ----------
+
+    private fun showPinMenu() {
+        val items = arrayOf(
+            "Hier merken (z.\u202FB. Auto, Treffpunkt)",
+            "Meinen Standort senden",
+            "Gemerkte Orte anzeigen (${favorites.all().size})"
+        )
+        AlertDialog.Builder(this, R.style.PeilDialog)
+            .setTitle("Mein Standort")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> markHere()
+                    1 -> sendLocation()
+                    2 -> showFavorites()
+                }
+            }
+            .show()
+    }
+
+    private fun markHere() {
+        val loc = currentLocation ?: run {
+            status("Ich kenne deinen Standort noch nicht – einen Moment.")
+            return
+        }
+        val input = EditText(this).apply {
+            setText("Mein Auto")
+            selectAll()
+            setSingleLine()
+            setTextColor(Ui.INK)
+        }
+        val frame = android.widget.FrameLayout(this).apply {
+            setPadding(dp(22), dp(8), dp(22), 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this, R.style.PeilDialog)
+            .setTitle("Ort merken")
+            .setMessage("Wie soll der Punkt heißen?")
+            .setView(frame)
+            .setPositiveButton("Merken") { _, _ ->
+                val name = input.text.toString().trim().ifBlank { "Mein Punkt" }
+                val time = java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("d.\u00A0M., HH:mm\u00A0'Uhr'", java.util.Locale.GERMANY))
+                val p = Place(name, loc.latitude, loc.longitude, "Gemerkt am $time", null, null, "Gemerkter Standort")
+                    .apply { detailsLoaded = true }
+                if (!favorites.contains(p)) favorites.toggle(p)
+                status("„$name“ gemerkt. Zurück findest du über den Standort-Knopf → Gemerkte Orte.")
+                vibrate(longArrayOf(0, 40))
+            }
+            .setNegativeButton("Abbrechen", null)
+            .show()
+        input.requestFocus()
+    }
+
+    private fun sendLocation() {
+        val loc = currentLocation ?: run {
+            status("Ich kenne deinen Standort noch nicht – einen Moment.")
+            return
+        }
+        val lat = String.format(java.util.Locale.US, "%.6f", loc.latitude)
+        val lon = String.format(java.util.Locale.US, "%.6f", loc.longitude)
+        val text = "Ich bin hier: https://maps.google.com/?q=$lat,$lon\n" +
+            "(Mit Peil: Nachricht teilen → Peil, dann zeigt dir der Pfeil den Weg.)"
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        startSafely(Intent.createChooser(intent, "Standort senden"))
+    }
+
+    private val coordRegex = Regex("(-?\\d{1,2}\\.\\d{3,})\\s*,\\s*(-?\\d{1,3}\\.\\d{3,})")
+    private var lastClipboardText: String? = null
+
+    private fun parseShared(text: String): Place? {
+        val m = coordRegex.find(text) ?: return null
+        val lat = m.groupValues[1].toDoubleOrNull() ?: return null
+        val lon = m.groupValues[2].toDoubleOrNull() ?: return null
+        if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
+        return Place("Geteilter Standort", lat, lon, null, null, null, "Von einem Kontakt")
+            .apply { detailsLoaded = true }
+    }
+
+    private fun handleIncoming(intent: Intent?) {
+        intent ?: return
+        val text = when (intent.action) {
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            Intent.ACTION_VIEW -> intent.dataString
+            else -> null
+        } ?: return
+        val p = parseShared(text)
+        if (p == null) {
+            status("In dem geteilten Text habe ich keinen Standort gefunden.")
+            return
+        }
+        lastClipboardText = text
+        openShared(p)
+    }
+
+    private fun openShared(p: Place) {
+        searchField.setText("")
+        showPlaces(listOf(p))
+        selectPlace(p)
+        status("Geteilter Standort – halt das Handy hoch und folge dem Pfeil.")
+    }
+
+    /** Liegt ein Standort-Link in der Zwischenablage (z. B. aus WhatsApp kopiert)? Dann anbieten. */
+    private fun checkClipboard() {
+        val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val text = runCatching { cm.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() }.getOrNull() ?: return
+        if (text == lastClipboardText) return
+        if (!text.contains("maps.google") && !text.contains("google.com/maps") && !text.startsWith("geo:")) return
+        lastClipboardText = text
+        val p = parseShared(text) ?: return
+        AlertDialog.Builder(this, R.style.PeilDialog)
+            .setTitle("Standort gefunden")
+            .setMessage("In der Zwischenablage liegt ein Standort. Soll Peil dich dorthin führen?")
+            .setPositiveButton("Hinführen") { _, _ -> openShared(p) }
+            .setNegativeButton("Nein", null)
+            .show()
+    }
+
     // ---------- Einstellungen ----------
 
     private fun showSettings() {
@@ -743,7 +879,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                     )
                     3 -> info(
                         "Über Peil",
-                        "Version ${versionName()}\n\nOrtsdaten und Öffnungszeiten: © OpenStreetMap-Mitwirkende (ODbL)\n" +
+                        "Version ${versionName()} (Build ${buildNumber()})\n\nOrtsdaten und Öffnungszeiten: © OpenStreetMap-Mitwirkende (ODbL)\n" +
                             "Suche: Photon von komoot\nVerbindungen: Deutsche Bahn über transport.rest"
                     )
                 }
@@ -765,6 +901,10 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private fun info(title: String, msg: String) {
         AlertDialog.Builder(this, R.style.PeilDialog).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show()
     }
+
+    private fun buildNumber(): Long = runCatching {
+        androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(packageManager.getPackageInfo(packageName, 0))
+    }.getOrDefault(0L)
 
     private fun versionName(): String =
         runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"

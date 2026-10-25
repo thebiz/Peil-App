@@ -82,7 +82,7 @@ object OpeningHours {
         for ((r, shift) in candidates) {
             val start = r.first + shift
             val end = r.last + 1 + shift
-            if (minute in start until end) return Status(true, "Geöffnet · bis ${fmt(end)} Uhr")
+            if (minute in start until end) return Status(true, "Geöffnet · bis ${fmt(end)}\u00A0Uhr")
         }
 
         // nächste Öffnung suchen
@@ -94,19 +94,55 @@ object OpeningHours {
                 1 -> "morgen"
                 else -> deDays[day]
             }
-            return Status(false, "Geschlossen · öffnet $whenText ${fmt(next)} Uhr")
+            return Status(false, "Geschlossen · öffnet $whenText ${fmt(next)}\u00A0Uhr")
         }
         return Status(false, "Geschlossen")
     }
 
-    /** Für die Anzeige: englische Tageskürzel → deutsche, eine Regel pro Zeile. */
+    /**
+     * Für die Anzeige, typografisch sauber:
+     * „Mo-Sa 07:00-21:00; Su,PH off“ → „Mo–Sa: 07:00–21:00 Uhr“ / „So, Feiertage: geschlossen“
+     */
     fun pretty(spec: String): String {
-        var s = spec
-        osmDays.forEachIndexed { i, d -> s = s.replace(Regex("\\b$d\\b"), deDays[i]) }
-        return s.replace("off", "geschlossen")
-            .replace("PH", "Feiertage")
-            .split(';')
-            .joinToString("\n") { it.trim() }
+        val s = spec.trim()
+        if (s == "24/7") return "Täglich rund um die Uhr"
+        return s.split(';').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n") { prettyRule(it) }
+    }
+
+    private fun prettyRule(rule: String): String {
+        val space = rule.indexOf(' ')
+        val head = if (space > 0) rule.substring(0, space) else rule
+        val parts = head.split(',')
+        val headIsDays = parts.all { dayToken.matches(it) || it == "PH" || it == "SH" }
+        val days = if (headIsDays) parts.joinToString(", ") { prettyDays(it) } else "Täglich"
+        val rest = if (headIsDays) (if (space > 0) rule.substring(space + 1).trim() else "") else rule
+        val times = when {
+            rest.isEmpty() -> "geöffnet"
+            rest == "off" || rest == "closed" -> "geschlossen"
+            else -> rest.split(',').map { it.trim() }.joinToString(", ") { t ->
+                val m = timeToken.matchEntire(t.replace(" ", ""))
+                if (m != null) {
+                    val start = "%02d:%s".format(m.groupValues[1].toInt(), m.groupValues[2])
+                    val end = "%02d:%s".format(m.groupValues[3].toInt(), m.groupValues[4])
+                    "$start–$end"
+                } else {
+                    t.replace("-", "–")
+                }
+            } + "\u00A0Uhr"
+        }
+        return "$days: $times"
+    }
+
+    private fun prettyDays(token: String): String = when (token) {
+        "PH" -> "Feiertage"
+        "SH" -> "Schulferien"
+        else -> {
+            val m = dayToken.matchEntire(token)
+            if (m == null) token else {
+                val a = deDays[osmDays.indexOf(m.groupValues[1])]
+                if (m.groupValues[2].isEmpty()) a else a + "–" + deDays[osmDays.indexOf(m.groupValues[2])]
+            }
+        }
     }
 
     private fun fmt(min: Int): String {

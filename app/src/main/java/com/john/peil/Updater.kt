@@ -26,12 +26,15 @@ class Updater(
     private val executor = Executors.newSingleThreadExecutor()
     private var pendingApk: File? = null
 
-    private class Release(val version: Int, val apkUrl: String, val notes: String)
+    private class Release(val version: Int, val name: String, val apkUrl: String, val notes: String)
 
     private fun installedVersion(): Long {
         val info = activity.packageManager.getPackageInfo(activity.packageName, 0)
         return PackageInfoCompat.getLongVersionCode(info)
     }
+
+    private fun installedName(): String =
+        runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }.getOrNull() ?: "?"
 
     fun check(manual: Boolean = false) {
         if (manual) onStatus("Suche nach Updates …")
@@ -42,7 +45,7 @@ class Updater(
                 when {
                     release == null -> if (manual) onStatus("Update-Prüfung hat nicht geklappt.")
                     release.version > installedVersion() -> askToUpdate(release)
-                    manual -> onStatus("Du hast schon die neueste Version (v${installedVersion()}).")
+                    manual -> onStatus("Du hast schon die neueste Version (${installedName()}).")
                 }
             }
         }
@@ -55,7 +58,7 @@ class Updater(
         for (i in 0 until assets.length()) {
             val a = assets.getJSONObject(i)
             if (a.getString("name").endsWith(".apk")) {
-                return Release(version, a.getString("browser_download_url"), json.optString("body"))
+                return Release(version, json.optString("name").removePrefix("Peil ").ifBlank { "Build $version" }, a.getString("browser_download_url"), json.optString("body"))
             }
         }
         throw IOException("Keine APK im Release")
@@ -63,7 +66,7 @@ class Updater(
 
     private fun askToUpdate(r: Release) {
         val msg = buildString {
-            append("Version v${r.version} ist da (du hast v${installedVersion()}).")
+            append("Version ${r.name} ist da. Du hast ${installedName()}.")
             if (r.notes.isNotBlank()) append("\n\n").append(r.notes.take(400))
         }
         AlertDialog.Builder(activity)
@@ -75,7 +78,7 @@ class Updater(
     }
 
     private fun download(r: Release) {
-        onStatus("Lade Update v${r.version} …")
+        onStatus("Lade Update ${r.name} …")
         executor.execute {
             val result = runCatching {
                 val dir = File(activity.cacheDir, "updates").apply { mkdirs() }

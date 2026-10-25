@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Peil</string>
-    <string name="search_hint">Was suchst du? z. B. Fielmann</string>
+    <string name="search_hint">Was suchst du? z.\u202FB. Fielmann</string>
     <string name="mic">Spracheingabe</string>
     <string name="settings">Einstellungen</string>
+    <string name="my_location">Mein Standort</string>
     <string name="status_start">Sag oder tipp, was du suchst – dann Handy hochhalten.</string>
     <string name="only_open">Nur geöffnet</string>
     <string name="only_target">Nur Ziel</string>
