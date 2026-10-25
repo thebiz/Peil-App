@@ -582,7 +582,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
                 layoutParams = LinearLayout.LayoutParams(dp(176), ViewGroup.LayoutParams.WRAP_CONTENT)
                     .apply { marginEnd = dp(8); bottomMargin = dp(2) }
             }
-            card.setOnClickListener { if (overlay.focusPlace() === p) showDetails(p) else selectPlace(p) }
+            // Antippen wählt das Ziel und klappt die Liste zu – Details gibt es über das Zielpanel
+            card.setOnClickListener { selectPlace(p) }
             card.addView(text(p.name, 15f, Ui.INK, Ui.MEDIUM, maxLines = 1))
             if (loc != null) {
                 val d = distanceTo(p, loc)
