@@ -47,7 +47,7 @@
                     android:layout_height="22dp"
                     android:importantForAccessibility="no"
                     android:src="@drawable/ic_search"
-                    android:tint="#0F9E91" />
+                    android:tint="#ED682F" />
 
                 <EditText
                     android:id="@+id/search_field"
@@ -73,7 +73,7 @@
                     android:background="?android:attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/mic"
                     android:src="@drawable/ic_mic"
-                    android:tint="#0F9E91" />
+                    android:tint="#ED682F" />
             </LinearLayout>
 
             <ImageButton
@@ -85,7 +85,7 @@
                 android:contentDescription="@string/my_location"
                 android:elevation="3dp"
                 android:src="@drawable/ic_pin"
-                android:tint="#0F9E91" />
+                android:tint="#ED682F" />
 
             <ImageButton
                 android:id="@+id/settings_button"

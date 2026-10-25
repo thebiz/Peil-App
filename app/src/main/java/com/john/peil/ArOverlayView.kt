@@ -285,10 +285,11 @@ class ArOverlayView @JvmOverloads constructor(
             layouts.firstOrNull { it.isFocus }?.let { drawMarker(canvas, it) }
             for (t in visible) if (layouts.none { it.t === t }) drawEdgeDot(canvas, t, t === focus)
 
-            draw3dArrow(canvas, focus)
             if (compassUnreliable && !arLocked) drawHint(canvas, "Kompass ungenau – Handy einmal in einer Acht schwenken")
         }
         drawGuide(canvas, focus)
+        // Der 3D-Pfeil kommt zuletzt, damit nichts ihn verdeckt
+        if (!isFlat) draw3dArrow(canvas, focus)
     }
 
     private class MarkerLayout(val t: Target, val isFocus: Boolean, val px: Float, val py: Float, val box: RectF)
@@ -379,10 +380,13 @@ class ArOverlayView @JvmOverloads constructor(
     private fun draw3dArrow(canvas: Canvas, focus: Target) {
         val r = camRot
         // Mittelpunkt in Kamerakoordinaten → Welt
-        val bob = sin(SystemClock.uptimeMillis() / 450.0) * 0.012
-        val ccx = 0.0
-        val ccy = -0.30 + bob
+        // Platz: frei über dem Zielpanel (etwa 85 dp darüber)
+        val panelTop = height - bottomInset - dp(8f) - dp(124f)
+        val wantY = (panelTop - dp(85f)).coerceAtLeast(height * 0.5f)
+        val bob = sin(SystemClock.uptimeMillis() / 450.0) * 0.008
         val ccz = -1.25
+        val ccx = 0.0
+        val ccy = (height / 2.0 - wantY) * -ccz / effFy() + bob
         val wx = r[0] * ccx + r[1] * ccy + r[2] * ccz
         val wy = r[3] * ccx + r[4] * ccy + r[5] * ccz
         val wz = r[6] * ccx + r[7] * ccy + r[8] * ccz
@@ -392,11 +396,11 @@ class ArOverlayView @JvmOverloads constructor(
         val dz = d[1]
         val sx = -dz                 // Querachse = Richtung × oben
         val sz = dx
-        val len = 0.30
-        val back = 0.14
-        val notch = 0.04
-        val wing = 0.17
-        val thick = 0.045
+        val len = 0.22
+        val back = 0.10
+        val notch = 0.03
+        val wing = 0.13
+        val thick = 0.035
 
         val top = arrayOf(
             doubleArrayOf(wx + dx * len, wy, wz + dz * len),
