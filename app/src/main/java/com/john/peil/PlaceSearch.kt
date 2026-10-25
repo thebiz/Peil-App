@@ -2,18 +2,7 @@ package com.john.peil
 
 import android.location.Location
 import org.json.JSONObject
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 import java.util.Locale
-
-data class Place(
-    val name: String,
-    val lat: Double,
-    val lon: Double,
-    val address: String?
-)
 
 /**
  * Sucht Orte in der Nähe – kostenlos und ohne Schlüssel.
@@ -28,7 +17,6 @@ object PlaceSearch {
     private const val PHOTON = "https://photon.komoot.io"
     private const val OVERPASS = "https://overpass-api.de/api/interpreter"
     private const val MAX_DISTANCE_M = 15_000f
-    private const val USER_AGENT = "Peil (Android; github.com/thebiz/Peil-App)"
 
     private class Category(val label: String, val osmTags: List<String>)
 
@@ -81,19 +69,20 @@ object PlaceSearch {
     // ---------- Photon ----------
 
     private fun photonName(q: String, lat: Double, lon: Double): List<Place> {
-        val url = "$PHOTON/api/?q=${enc(q)}&lat=$lat&lon=$lon&limit=50&lang=de" +
+        val url = "$PHOTON/api/?q=${Http.enc(q)}&lat=$lat&lon=$lon&limit=50&lang=de" +
             "&location_bias_scale=0.1&zoom=14"
-        return parsePhoton(get(url), fallbackName = q, skipGeneric = true)
-            .filter { Regex(Regex.escape(q), RegexOption.IGNORE_CASE).containsMatchIn(it.name) }
+        val pattern = Regex(Regex.escape(q), RegexOption.IGNORE_CASE)
+        return parsePhoton(Http.get(url), fallbackName = q, category = null, skipGeneric = true)
+            .filter { pattern.containsMatchIn(it.name) }
     }
 
     private fun photonCategory(c: Category, lat: Double, lon: Double): List<Place> {
-        val tags = c.osmTags.joinToString("") { "&osm_tag=${enc(it)}" }
+        val tags = c.osmTags.joinToString("") { "&osm_tag=${Http.enc(it)}" }
         val url = "$PHOTON/reverse?lat=$lat&lon=$lon&radius=5&limit=40&lang=de$tags"
-        return parsePhoton(get(url), fallbackName = c.label, skipGeneric = false)
+        return parsePhoton(Http.get(url), fallbackName = c.label, category = c.label, skipGeneric = false)
     }
 
-    private fun parsePhoton(json: String, fallbackName: String, skipGeneric: Boolean): List<Place> {
+    private fun parsePhoton(json: String, fallbackName: String, category: String?, skipGeneric: Boolean): List<Place> {
         val features = JSONObject(json).optJSONArray("features") ?: return emptyList()
         val seen = HashSet<String>()
         val result = mutableListOf<Place>()
@@ -110,9 +99,16 @@ object PlaceSearch {
             val street = props.optString("street")
             val number = props.optString("housenumber")
             val address = if (street.isNotBlank()) "$street $number".trim() else null
+            val osmType = when (props.optString("osm_type")) {
+                "N" -> "node"
+                "W" -> "way"
+                "R" -> "relation"
+                else -> null
+            }
+            val osmId = props.optLong("osm_id", -1L).takeIf { it >= 0 }
 
             if (!seen.add(dedupKey(name, lat, lon))) continue
-            result.add(Place(name, lat, lon, address))
+            result.add(Place(name, lat, lon, address, osmType, osmId, category))
         }
         return result
     }
@@ -132,7 +128,7 @@ object PlaceSearch {
             "nwr[\"name\"~\"$safe\",i]$around;nwr[\"brand\"~\"$safe\",i]$around;"
         }
         val ql = "[out:json][timeout:12];($body);out center tags 40;"
-        val json = request(OVERPASS, "data=" + enc(ql), readTimeout = 15_000)
+        val json = Http.post(OVERPASS, "data=" + Http.enc(ql), readTimeout = 15_000)
 
         val elements = JSONObject(json).optJSONArray("elements") ?: return emptyList()
         val seen = HashSet<String>()
@@ -150,7 +146,9 @@ object PlaceSearch {
             val street = tags.optString("addr:street")
             val address = if (street.isNotBlank()) "$street ${tags.optString("addr:housenumber")}".trim() else null
             if (!seen.add(dedupKey(name, pLat, pLon))) continue
-            result.add(Place(name, pLat, pLon, address))
+            val p = Place(name, pLat, pLon, address, el.optString("type").ifBlank { null }, el.optLong("id"), category?.label)
+            PlaceDetails.applyTags(p, tags)
+            result.add(p)
         }
         return result
     }
@@ -172,28 +170,4 @@ object PlaceSearch {
 
     private fun dedupKey(name: String, lat: Double, lon: Double) =
         "${name.lowercase(Locale.GERMAN)}|${Math.round(lat * 2000)}|${Math.round(lon * 2000)}"
-
-    private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
-
-    private fun get(url: String): String = request(url, body = null, readTimeout = 10_000)
-
-    private fun request(url: String, body: String?, readTimeout: Int): String {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 6_000
-            conn.readTimeout = readTimeout
-            conn.setRequestProperty("User-Agent", USER_AGENT)
-            conn.setRequestProperty("Accept-Language", "de")
-            if (body != null) {
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            }
-            if (conn.responseCode != 200) throw IOException("Server antwortet mit ${conn.responseCode}")
-            return conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        } finally {
-            conn.disconnect()
-        }
-    }
 }

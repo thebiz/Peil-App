@@ -22,8 +22,9 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * Zeichnet die Marker über das Kamerabild – wie bei einer Sternkarte:
- * Jeder Treffer schwebt in seiner Himmelsrichtung, unten zeigt ein Pfeil zum gewählten Ziel.
+ * Zeichnet die Marker über das Kamerabild – wie bei einer Sternkarte.
+ * Handy flach halten → Kartenansicht von oben (Radar).
+ * Unten zeigt ein Pfeil zum gewählten Ziel; Antippen öffnet die Details.
  */
 class ArOverlayView @JvmOverloads constructor(
     context: Context,
@@ -38,6 +39,7 @@ class ArOverlayView @JvmOverloads constructor(
     private var targets: List<Target> = emptyList()
     private var selected: Place? = null
     private val hitAreas = mutableListOf<Pair<RectF, Place>>()
+    private val guideRect = RectF()
 
     private var myLat = Double.NaN
     private var myLon = Double.NaN
@@ -48,16 +50,17 @@ class ArOverlayView @JvmOverloads constructor(
     private var heading = 0.0
     private var pitch = 0.0
 
+    var onMarkerTap: ((Place) -> Unit)? = null
+    var onGuideTap: ((Place) -> Unit)? = null
+
     var compassUnreliable = false
-        set(value) {
-            field = value
-            invalidate()
-        }
+        set(value) { field = value; invalidate() }
+    var onlyFocus = false
+        set(value) { field = value; invalidate() }
     var bottomInset = 0
-        set(value) {
-            field = value
-            invalidate()
-        }
+        set(value) { field = value; invalidate() }
+
+    val isFlat: Boolean get() = abs(pitch) > 55
 
     /** Ungefährer horizontaler Bildwinkel einer Handy-Hauptkamera im Hochformat. */
     private val fov = 60.0
@@ -71,9 +74,17 @@ class ArOverlayView @JvmOverloads constructor(
     private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = panelColor }
     private val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
     private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 255, 255, 255) }
-    private val stemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val stemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = dp(2f) }
+    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
         strokeWidth = dp(2f)
-        color = Color.WHITE
+        color = accent
+    }
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+        color = Color.argb(70, 255, 255, 255)
     }
     private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -83,6 +94,10 @@ class ArOverlayView @JvmOverloads constructor(
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(220, 255, 255, 255)
         textSize = dp(13f)
+    }
+    private val smallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(160, 255, 255, 255)
+        textSize = dp(11f)
     }
     private val bigTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -94,7 +109,7 @@ class ArOverlayView @JvmOverloads constructor(
         textSize = dp(15f)
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = dp(14f)
         textAlign = Paint.Align.CENTER
@@ -112,10 +127,19 @@ class ArOverlayView @JvmOverloads constructor(
 
     fun setTargets(places: List<Place>) {
         targets = places.map { Target(it) }
-        selected = null
+        if (selected != null && places.none { it === selected }) selected = null
         recompute()
         invalidate()
     }
+
+    fun select(place: Place?) {
+        selected = place
+        invalidate()
+    }
+
+    fun focusPlace(): Place? = focusTarget()?.place
+
+    fun distanceTo(place: Place): Float? = targets.firstOrNull { it.place === place }?.distance
 
     fun setOrientation(azimuthDeg: Double, pitchDeg: Double) {
         val r = Math.toRadians(azimuthDeg)
@@ -133,6 +157,9 @@ class ArOverlayView @JvmOverloads constructor(
         pitch = pitchDeg
         invalidate()
     }
+
+    private fun focusTarget(): Target? =
+        selected?.let { s -> targets.firstOrNull { it.place === s } } ?: targets.firstOrNull()
 
     private fun recompute() {
         if (myLat.isNaN()) return
@@ -153,32 +180,42 @@ class ArOverlayView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         hitAreas.clear()
+        guideRect.setEmpty()
         if (targets.isEmpty() || myLat.isNaN() || !hasHeading) return
 
-        val w = width.toFloat()
-        val h = height.toFloat()
-        val focus = selected?.let { s -> targets.firstOrNull { it.place == s } } ?: targets.first()
-        val maxDist = max(targets.maxOf { it.distance }, 1f)
+        val focus = focusTarget() ?: return
+        val visible = if (onlyFocus) listOf(focus) else targets
 
-        // von fern nach nah, damit die nahen Marker oben liegen
-        for (t in targets.asReversed()) {
-            val rel = relAngle(t.bearing)
-            val isFocus = t === focus
-            val norm = t.distance / maxDist
-            if (abs(rel) <= fov / 2) {
-                val x = (w / 2 + (rel / (fov / 2)) * (w / 2)).toFloat()
-                val y = h * 0.30f + (1f - norm) * h * 0.20f
-                drawMarker(canvas, x, y, t, isFocus)
-            } else {
-                // außerhalb: kleiner Punkt am Rand
-                val x = if (rel > 0) w - dp(10f) else dp(10f)
-                val y = h * 0.30f + (1f - norm) * h * 0.20f
-                canvas.drawCircle(x, y, dp(if (isFocus) 7f else 4f), if (isFocus) accentPaint else dimPaint)
+        if (isFlat) {
+            drawRadar(canvas, visible, focus)
+        } else {
+            val maxDist = max(visible.maxOf { it.distance }, 1f)
+            // erst die anderen (fern → nah), das gewählte Ziel ganz zum Schluss = ganz vorne
+            for (t in visible.asReversed()) {
+                if (t !== focus) drawTarget(canvas, t, false, maxDist)
             }
+            drawTarget(canvas, focus, true, maxDist)
+            if (compassUnreliable) drawHint(canvas, "Kompass ungenau – Handy einmal in einer Acht schwenken")
         }
+        drawGuide(canvas, focus)
+    }
 
-        drawHints(canvas, w, h)
-        drawGuide(canvas, focus, w, h)
+    private fun markerY(t: Target, maxDist: Float): Float {
+        val norm = t.distance / maxDist
+        return height * 0.32f + (1f - norm) * height * 0.18f
+    }
+
+    private fun drawTarget(canvas: Canvas, t: Target, isFocus: Boolean, maxDist: Float) {
+        val rel = relAngle(t.bearing)
+        val y = markerY(t, maxDist)
+        if (abs(rel) <= fov / 2) {
+            val x = (width / 2.0 + (rel / (fov / 2)) * (width / 2.0)).toFloat()
+            drawMarker(canvas, x, y, t, isFocus)
+        } else {
+            // außerhalb des Bildes: kleiner Punkt am Rand
+            val x = if (rel > 0) width - dp(10f) else dp(10f)
+            canvas.drawCircle(x, y, dp(if (isFocus) 7f else 4f), if (isFocus) accentPaint else dimPaint)
+        }
     }
 
     private fun drawMarker(canvas: Canvas, x: Float, y: Float, t: Target, isFocus: Boolean) {
@@ -189,37 +226,81 @@ class ArOverlayView @JvmOverloads constructor(
         val boxW = max(tp.measureText(name), textPaint.measureText(sub)) + pad * 2
         val boxH = tp.textSize + textPaint.textSize + pad * 2 + dp(4f)
 
-        val left = (x - boxW / 2).coerceIn(dp(4f), width - boxW - dp(4f))
+        val left = (x - boxW / 2).coerceIn(dp(4f), max(dp(4f), width - boxW - dp(4f)))
         val box = RectF(left, y - boxH, left + boxW, y)
 
-        // Stiel + Punkt
         stemPaint.color = if (isFocus) accent else Color.WHITE
         canvas.drawLine(x, y, x, y + dp(22f), stemPaint)
-        canvas.drawCircle(x, y + dp(22f), dp(if (isFocus) 7f else 5f), if (isFocus) accentPaint else stemPaint)
+        canvas.drawCircle(x, y + dp(22f), dp(if (isFocus) 7f else 5f), if (isFocus) accentPaint else whitePaint)
 
         canvas.drawRoundRect(box, dp(12f), dp(12f), panelPaint)
-        if (isFocus) {
-            val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = dp(2f)
-                color = accent
-            }
-            canvas.drawRoundRect(box, dp(12f), dp(12f), border)
-        }
+        if (isFocus) canvas.drawRoundRect(box, dp(12f), dp(12f), borderPaint)
         canvas.drawText(name, box.left + pad, box.top + pad + tp.textSize * 0.85f, tp)
         canvas.drawText(sub, box.left + pad, box.bottom - pad, if (isFocus) accentTextPaint else textPaint)
 
         hitAreas.add(RectF(box.left, box.top, box.right, y + dp(30f)) to t.place)
     }
 
-    private fun drawGuide(canvas: Canvas, t: Target, w: Float, h: Float) {
+    /** Kartenansicht von oben: Mitte = du, oben = Blickrichtung. */
+    private fun drawRadar(canvas: Canvas, visible: List<Target>, focus: Target) {
+        canvas.drawColor(Color.argb(215, 10, 12, 15))
+        val w = width.toFloat()
+        val cx = w / 2
+        val cy = height * 0.42f
+        val radius = min(w * 0.40f, height * 0.26f)
+        val scale = niceScale(visible.maxOf { it.distance })
+
+        for (i in 1..3) {
+            val r = radius * i / 3f
+            canvas.drawCircle(cx, cy, r, ringPaint)
+            canvas.drawText(formatDistance(scale * i / 3f), cx + dp(4f), cy - r - dp(3f), smallPaint)
+        }
+
+        // Norden
+        val nAng = Math.toRadians(-heading)
+        val nx = (cx + sin(nAng) * (radius + dp(16f))).toFloat()
+        val ny = (cy - cos(nAng) * (radius + dp(16f))).toFloat()
+        canvas.drawText("N", nx, ny + centerPaint.textSize * 0.35f, centerPaint)
+
+        // du
+        arrowPath.reset()
+        arrowPath.moveTo(cx, cy - dp(11f))
+        arrowPath.lineTo(cx + dp(8f), cy + dp(8f))
+        arrowPath.lineTo(cx, cy + dp(3f))
+        arrowPath.lineTo(cx - dp(8f), cy + dp(8f))
+        arrowPath.close()
+        canvas.drawPath(arrowPath, whitePaint)
+
+        val ordered = visible.filter { it !== focus } + focus
+        for (t in ordered) {
+            val isFocus = t === focus
+            val rel = Math.toRadians(relAngle(t.bearing))
+            val r = radius * min(t.distance / scale, 1f)
+            val x = (cx + sin(rel) * r).toFloat()
+            val y = (cy - cos(rel) * r).toFloat()
+            canvas.drawCircle(x, y, dp(if (isFocus) 9f else 6f), if (isFocus) accentPaint else whitePaint)
+            if (isFocus) {
+                val label = ellipsize(t.place.name, 22)
+                val tw = titlePaint.measureText(label)
+                val lx = (x - tw / 2).coerceIn(dp(8f), max(dp(8f), w - tw - dp(8f)))
+                canvas.drawText(label, lx, y - dp(14f), titlePaint)
+            }
+            val hit = dp(22f)
+            hitAreas.add(RectF(x - hit, y - hit, x + hit, y + hit) to t.place)
+        }
+
+        canvas.drawText("Kartenansicht · Handy aufrichten für die Kamera", cx, cy + radius + dp(40f), centerPaint)
+    }
+
+    private fun drawGuide(canvas: Canvas, t: Target) {
+        val w = width.toFloat()
         val margin = dp(16f)
         val panelH = dp(124f)
-        val bottom = h - bottomInset - margin
+        val bottom = height - bottomInset - dp(8f)
         val panel = RectF(margin, bottom - panelH, w - margin, bottom)
+        guideRect.set(panel)
         canvas.drawRoundRect(panel, dp(22f), dp(22f), panelPaint)
 
-        // Pfeil im Kreis
         val r = dp(38f)
         val cx = panel.left + dp(18f) + r
         val cy = panel.centerY()
@@ -236,7 +317,6 @@ class ArOverlayView @JvmOverloads constructor(
         canvas.drawPath(arrowPath, accentPaint)
         canvas.restore()
 
-        // Texte
         val tx = cx + r + dp(16f)
         val maxChars = ((panel.right - tx - dp(12f)) / (bigTitlePaint.textSize * 0.55f)).toInt().coerceAtLeast(8)
         var line = panel.top + dp(30f)
@@ -248,45 +328,40 @@ class ArOverlayView @JvmOverloads constructor(
         )
         line += dp(22f)
         canvas.drawText(directionText(rel), tx, line, textPaint)
-        t.place.address?.let {
-            line += dp(19f)
-            canvas.drawText(ellipsize(it, maxChars + 6), tx, line, textPaint)
-        }
+        line += dp(19f)
+        canvas.drawText("Tippen für Details ›", tx, line, smallPaint)
 
-        // Blickrichtung klein oben rechts im Panel
         val hdg = "${compassWord(heading)} ${heading.roundToInt()}°"
-        val small = Paint(textPaint).apply { textAlign = Paint.Align.RIGHT; textSize = dp(11f) }
+        val small = Paint(smallPaint).apply { textAlign = Paint.Align.RIGHT }
         canvas.drawText(hdg, panel.right - dp(14f), panel.top + dp(18f), small)
     }
 
-    private fun drawHints(canvas: Canvas, w: Float, h: Float) {
-        val msg = when {
-            abs(pitch) > 55 -> "Handy aufrecht halten – wie zum Filmen"
-            compassUnreliable -> "Kompass ungenau – Handy einmal in einer Acht schwenken"
-            else -> return
-        }
-        val tw = hintPaint.measureText(msg) + dp(28f)
-        val y = h * 0.62f
+    private fun drawHint(canvas: Canvas, msg: String) {
+        val w = width.toFloat()
+        val tw = centerPaint.measureText(msg) + dp(28f)
+        val y = height * 0.62f
         val box = RectF(w / 2 - tw / 2, y - dp(18f), w / 2 + tw / 2, y + dp(18f))
         canvas.drawRoundRect(box, dp(18f), dp(18f), panelPaint)
-        canvas.drawText(msg, w / 2, y + hintPaint.textSize * 0.35f, hintPaint)
+        canvas.drawText(msg, w / 2, y + centerPaint.textSize * 0.35f, centerPaint)
     }
 
-    // ---------- Antippen: anderes Ziel wählen ----------
+    // ---------- Antippen ----------
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        val onGuide = guideRect.contains(event.x, event.y)
         val hit = hitAreas.lastOrNull { it.first.contains(event.x, event.y) }
         return when (event.action) {
-            MotionEvent.ACTION_DOWN -> hit != null
+            MotionEvent.ACTION_DOWN -> onGuide || hit != null
             MotionEvent.ACTION_UP -> {
-                if (hit != null) {
-                    selected = hit.second
-                    invalidate()
-                    performClick()
+                if (onGuide) {
+                    focusPlace()?.let { onGuideTap?.invoke(it) }
+                } else if (hit != null) {
+                    onMarkerTap?.invoke(hit.second)
                 }
+                performClick()
                 true
             }
-            else -> hit != null
+            else -> onGuide || hit != null
         }
     }
 
@@ -309,15 +384,22 @@ class ArOverlayView @JvmOverloads constructor(
         return words[(((deg + 22.5) % 360) / 45).toInt() % 8]
     }
 
+    private fun niceScale(d: Float): Float {
+        val steps = listOf(100f, 200f, 300f, 500f, 750f, 1000f, 1500f, 2000f, 3000f, 5000f, 7500f, 10000f, 15000f)
+        return steps.firstOrNull { it >= d } ?: d
+    }
+
     private fun ellipsize(s: String, maxChars: Int): String =
         if (s.length <= maxChars) s else s.take(max(1, maxChars - 1)).trimEnd() + "…"
 
-    private fun formatDistance(m: Float): String = when {
-        m < 100 -> "${max(5, (m / 5).roundToInt() * 5)} m"
-        m < 1000 -> "${(m / 10).roundToInt() * 10} m"
-        else -> String.format(Locale.GERMANY, "%.1f km", m / 1000f)
-    }
+    companion object {
+        fun formatDistance(m: Float): String = when {
+            m < 100 -> "${max(5, (m / 5).roundToInt() * 5)} m"
+            m < 1000 -> "${(m / 10).roundToInt() * 10} m"
+            else -> String.format(Locale.GERMANY, "%.1f km", m / 1000f)
+        }
 
-    /** ca. 4,8 km/h Gehtempo */
-    private fun walkMinutes(m: Float): Int = max(1, min(999, ceil(m / 80.0).toInt()))
+        /** ca. 4,8 km/h Gehtempo */
+        fun walkMinutes(m: Float): Int = max(1, min(999, ceil(m / 80.0).toInt()))
+    }
 }
