@@ -165,6 +165,11 @@ class ArOverlayView @JvmOverloads constructor(
     }
     private val arrowPath = Path()
 
+    init {
+        // Ziffern gleich breit (Entfernungen, Uhrzeiten)
+        listOf(titlePaint, textPaint, smallPaint, bigTitlePaint, accentTextPaint).forEach { it.fontFeatureSettings = "tnum" }
+    }
+
     // ---------- Daten von außen ----------
 
     fun setLocation(lat: Double, lon: Double) {

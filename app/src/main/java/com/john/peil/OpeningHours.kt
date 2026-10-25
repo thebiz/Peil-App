@@ -109,6 +109,17 @@ object OpeningHours {
         return s.split(';').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n") { prettyRule(it) }
     }
 
+    /** Wie [pretty], aber als Zeilen (Tage, Zeiten) für eine saubere zweispaltige Tabelle. */
+    fun prettyRows(spec: String): List<Pair<String, String>> {
+        val s = spec.trim()
+        if (s == "24/7") return listOf("Täglich" to "rund um die Uhr")
+        return s.split(';').map { it.trim() }.filter { it.isNotEmpty() }.map { r ->
+            val line = prettyRule(r)
+            val i = line.indexOf(": ")
+            if (i > 0) line.substring(0, i) to line.substring(i + 2) else "" to line
+        }
+    }
+
     private fun prettyRule(rule: String): String {
         val space = rule.indexOf(' ')
         val head = if (space > 0) rule.substring(0, space) else rule

@@ -831,9 +831,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         when {
             !p.detailsLoaded -> detailContent.addView(text("Lade …", 14f, Ui.MUTED))
             hours == null -> detailContent.addView(text("Keine Öffnungszeiten hinterlegt", 14f, Ui.MUTED))
-            else -> detailContent.addView(
-                text(OpeningHours.pretty(hours), 15f, Ui.INK_SOFT).apply { setLineSpacing(dp(4).toFloat(), 1f) }
-            )
+            else -> detailContent.addView(hoursTable(hours))
         }
 
         // Bus & Bahn (bleibt beim Neuzeichnen erhalten)
@@ -887,6 +885,26 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
             row.addView(btn)
         }
         detailContent.addView(row)
+    }
+
+    /** Öffnungszeiten als Tabelle: Tage links, Zeiten in einer sauberen Spalte daneben. */
+    private fun hoursTable(spec: String): View {
+        val rows = OpeningHours.prettyRows(spec)
+        val table = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val probe = text("", 15f, Ui.INK_SOFT, Ui.MEDIUM)
+        val dayWidth = rows.maxOfOrNull { probe.paint.measureText(it.first) } ?: 0f
+        rows.forEachIndexed { i, (days, times) ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, if (i == 0) 0 else dp(6), 0, 0)
+            }
+            row.addView(text(days, 15f, Ui.INK_SOFT, Ui.MEDIUM, maxLines = 1).apply {
+                width = dayWidth.toInt() + dp(18)
+            })
+            row.addView(text(times, 15f, Ui.INK_SOFT).apply { fontFeatureSettings = "tnum" })
+            table.addView(row)
+        }
+        return table
     }
 
     private fun loadTransit(p: Place) {
@@ -1266,6 +1284,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         TextView(this).apply {
             text = s
             textSize = sizeSp
+            fontFeatureSettings = "tnum" // Ziffern gleich breit, damit Zahlen sauber untereinanderstehen
             setTextColor(color)
             typeface = face
             if (maxLines > 0) {
