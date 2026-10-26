@@ -188,6 +188,7 @@ class ArOverlayView @JvmOverloads constructor(
     }
 
     fun select(place: Place?) {
+        if (place !== selected) radarZoom = 1f // neues Ziel: Radar passt sich wieder automatisch an
         selected = place
         invalidate()
     }
@@ -482,8 +483,12 @@ class ArOverlayView @JvmOverloads constructor(
         val cy = height * 0.42f
         val radius = min(w * 0.40f, height * 0.26f)
         // Zoom per Pinch: kleinerer Radius = nahe Ziele größer sichtbar
-        val autoRange = niceScale(visible.maxOf { it.distance })
-        radarZoom = radarZoom.coerceIn(0.5f, max(1f, autoRange / 30f))
+        // Automatisch auf das Ziel zoomen: es liegt bei etwa zwei Dritteln des äußeren Rings.
+        // Weiter entfernte Treffer landen als Punkte am Rand.
+        val allRange = niceScale(visible.maxOf { it.distance })
+        val autoRange = niceScale(max(focus.distance * 1.5f, 30f)).coerceAtMost(allRange)
+        // Rauszoomen bis alles sichtbar ist, reinzoomen bis etwa 30 m
+        radarZoom = radarZoom.coerceIn(min(1f, autoRange / allRange), max(1f, autoRange / 30f))
         val scale = autoRange / radarZoom
 
         for (i in 1..3) {
@@ -647,7 +652,7 @@ class ArOverlayView @JvmOverloads constructor(
     }
 
     private fun niceScale(d: Float): Float {
-        val steps = listOf(100f, 200f, 300f, 500f, 750f, 1000f, 1500f, 2000f, 3000f, 5000f, 7500f, 10000f, 15000f)
+        val steps = listOf(30f, 45f, 60f, 75f, 100f, 150f, 200f, 300f, 400f, 500f, 750f, 1000f, 1500f, 2000f, 3000f, 5000f, 7500f, 10000f, 15000f)
         return steps.firstOrNull { it >= d } ?: d
     }
 
