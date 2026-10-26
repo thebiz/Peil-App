@@ -6,7 +6,7 @@ import java.net.URL
 import java.net.URLEncoder
 
 object Http {
-    const val USER_AGENT = "Peil (Android; github.com/thebiz/Peil-App)"
+    const val USER_AGENT = "Peil (Android; github.com/thebiz/peil-app)"
 
     fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 

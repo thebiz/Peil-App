@@ -52,7 +52,7 @@ class Updater(
     }
 
     private fun fetchLatest(): Release {
-        val json = JSONObject(get("https://api.github.com/repos/thebiz/Peil-App/releases/latest"))
+        val json = JSONObject(get("https://api.github.com/repos/thebiz/peil-app/releases/latest"))
         val version = json.getString("tag_name").trimStart('v', 'V').toInt()
         val assets = json.getJSONArray("assets")
         for (i in 0 until assets.length()) {

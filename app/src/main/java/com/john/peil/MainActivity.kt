@@ -75,6 +75,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
 
     private lateinit var updater: Updater
     private lateinit var favorites: Favorites
+    private lateinit var history: SearchHistory
+    private lateinit var suggestBox: LinearLayout
 
     private var currentLocation: Location? = null
     private var declination = 0f
@@ -172,6 +174,31 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
             insets
         }
         bottomBar.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateGuideInset() }
+
+        // ---------- Suchvorschläge: häufigste zuerst, dann die letzten ----------
+        history = SearchHistory(this)
+        suggestBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = rounded(Ui.CARD, 16, Ui.BORDER, 1)
+            elevation = dp(3).toFloat()
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(8) }
+        }
+        (topBar as LinearLayout).addView(suggestBox, 1)
+        searchField.setOnFocusChangeListener { _, hasFocus ->
+            searchBackCallback.isEnabled = hasFocus
+            if (hasFocus) showSuggestions() else hideSuggestions()
+        }
+        searchField.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(e: android.text.Editable?) {
+                if (searchField.hasFocus()) showSuggestions()
+            }
+        })
+        onBackPressedDispatcher.addCallback(this, searchBackCallback)
 
         searchField.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
@@ -530,9 +557,60 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         }
     }
 
+    private val searchBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() = hideKeyboard()
+    }
+
+    private fun showSuggestions() {
+        val (frequent, recent) = history.suggestions(searchField.text.toString())
+        suggestBox.removeAllViews()
+        if (frequent.isEmpty() && recent.isEmpty()) {
+            hideSuggestions()
+            return
+        }
+        fun section(title: String, list: List<SearchHistory.Entry>, icon: Int) {
+            if (list.isEmpty()) return
+            suggestBox.addView(text(title.uppercase(), 11f, Ui.LABEL, Ui.BOLD).apply {
+                letterSpacing = 0.14f
+                setPadding(dp(12), dp(if (suggestBox.childCount == 0) 6 else 12), dp(12), dp(4))
+            })
+            list.forEach { e -> suggestBox.addView(suggestionRow(e, icon)) }
+        }
+        section("Häufig gesucht", frequent, R.drawable.ic_trend)
+        section("Zuletzt gesucht", recent, R.drawable.ic_history)
+        suggestBox.visibility = View.VISIBLE
+        statusText.visibility = View.GONE
+    }
+
+    private fun hideSuggestions() {
+        suggestBox.visibility = View.GONE
+        statusText.visibility = View.VISIBLE
+    }
+
+    private fun suggestionRow(e: SearchHistory.Entry, icon: Int): View =
+        text(e.text, 16f, Ui.INK, Ui.REGULAR, maxLines = 1).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = dp(46)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            setCompoundDrawablesRelativeWithIntrinsicBounds(tinted(icon, Ui.LABEL, 18), null, null, null)
+            compoundDrawablePadding = dp(12)
+            background = pressable()
+            setOnClickListener {
+                searchField.setText(e.text)
+                search(e.text)
+            }
+            setOnLongClickListener {
+                history.remove(e.text)
+                status("„${e.text}“ aus dem Verlauf entfernt.")
+                showSuggestions()
+                true
+            }
+        }
+
     private fun search(query: String) {
         val q = query.trim()
         if (q.isEmpty()) return
+        history.record(q)
         hideKeyboard()
         closeDetails()
 
