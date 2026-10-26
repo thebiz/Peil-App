@@ -38,6 +38,18 @@ jobs:
       - name: Version lesen
         run: echo "PEIL_VERSION=$(cat version.txt | tr -d '[:space:]')" >> $GITHUB_ENV
 
+      - name: Änderungen aus dem Versionsverlauf lesen
+        run: |
+          python3 - <<'PY'
+          import json
+          r = json.load(open("app/src/main/assets/changelog.json", encoding="utf-8"))[0]
+          v = open("version.txt").read().strip()
+          # Jede Version braucht einen Eintrag im Versionsverlauf
+          assert r["version"] == v, f"changelog.json fehlt ein Eintrag für {v} (oben steht {r['version']})"
+          with open("release_notes.md", "w", encoding="utf-8") as f:
+              f.write("\n".join("– " + c for c in r["changes"]) + "\n")
+          PY
+
       - name: APK umbenennen
         run: cp app/build/outputs/apk/debug/app-debug.apk Peil-${{ env.PEIL_VERSION }}.apk
 
@@ -51,6 +63,6 @@ jobs:
         with:
           tag_name: v${{ github.run_number }}
           name: Peil ${{ env.PEIL_VERSION }}
-          body: ${{ github.event.head_commit.message }}
+          body_path: release_notes.md
           files: Peil-${{ env.PEIL_VERSION }}.apk
           make_latest: true

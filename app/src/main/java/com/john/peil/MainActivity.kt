@@ -235,6 +235,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         if (savedInstanceState == null) {
             updater.check()
             handleIncoming(intent)
+            showWhatsNewOnce()
         }
 
         permissionLauncher.launch(
@@ -1244,6 +1245,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         val items = arrayOf(
             "Nach Updates suchen",
             "Gemerkte Orte anzeigen ($favCount)",
+            "Versionsverlauf",
             if (arEnabled()) "AR-Modus (ARCore) ausschalten" else "AR-Modus (ARCore) einschalten",
             "Kompass kalibrieren – so geht's",
             "Über Peil & Datenquellen"
@@ -1254,18 +1256,19 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
                 when (which) {
                     0 -> updater.check(manual = true)
                     1 -> showFavorites()
-                    2 -> {
+                    2 -> showChangelog(Changelog.load(this), "Versionsverlauf")
+                    3 -> {
                         prefs.edit().putBoolean("ar", !arEnabled()).apply()
                         status(if (arEnabled()) "AR-Modus an – Peil startet neu." else "AR-Modus aus – Peil startet neu.")
                         recreate()
                     }
-                    3 -> info(
+                    4 -> info(
                         "Kompass kalibrieren",
                         "Halte das Handy vor dich und schwenke es zwei-, dreimal in Form einer liegenden Acht (∞), " +
                             "dabei auch leicht kippen und drehen.\n\nTipp: Abstand zu Autos, Metallgeländern und " +
                             "Magnethüllen hilft. Wenn der Kompass ungenau wird, vibriert Peil kurz."
                     )
-                    4 -> info(
+                    5 -> info(
                         "Über Peil",
                         "Version ${versionName()} (Build ${buildNumber()})\n\nOrtsdaten und Öffnungszeiten: © OpenStreetMap-Mitwirkende (ODbL)\n" +
                             "Suche: Photon von komoot\nVerbindungen: Deutsche Bahn über transport.rest"
@@ -1284,6 +1287,69 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         searchField.setText("")
         showPlaces(favs)
         status("Deine ${favs.size} gemerkten Orte.")
+    }
+
+    // ---------- Versionsverlauf ----------
+
+    /** Nach einem Update einmal zeigen, was neu ist (nicht bei der ersten Installation). */
+    private fun showWhatsNewOnce() {
+        val current = versionName()
+        val seen = prefs.getString("seenVersion", null)
+        prefs.edit().putString("seenVersion", current).apply()
+        if (seen == null || seen == current) return
+        val all = Changelog.load(this)
+        // alle Versionen seit der zuletzt gesehenen
+        val idxSeen = all.indexOfFirst { it.version == seen }
+        val news = if (idxSeen > 0) all.take(idxSeen) else all.filter { it.version == current }
+        if (news.isNotEmpty()) showChangelog(news, "Neu in Peil $current")
+    }
+
+    private fun showChangelog(releases: List<Changelog.Release>, title: String) {
+        if (releases.isEmpty()) {
+            status("Kein Versionsverlauf gefunden.")
+            return
+        }
+        val current = versionName()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(4), dp(24), dp(8))
+        }
+        releases.forEachIndexed { i, r ->
+            val head = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, if (i == 0) dp(4) else dp(20), 0, dp(6))
+            }
+            head.addView(text(r.version, 18f, Ui.INK, Ui.MEDIUM))
+            if (r.version == current) {
+                head.addView(text("installiert", 11f, Color.WHITE, Ui.BOLD).apply {
+                    setPadding(dp(8), dp(2), dp(8), dp(3))
+                    background = rounded(Ui.ACCENT, 20, Color.TRANSPARENT, 0)
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        .apply { marginStart = dp(8) }
+                })
+            }
+            head.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
+            head.addView(text(r.date, 13f, Ui.LABEL))
+            box.addView(head)
+            r.changes.forEach { c ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, dp(3), 0, dp(3))
+                }
+                row.addView(text("–", 15f, Ui.ACCENT, Ui.BOLD).apply { setPadding(0, 0, dp(10), 0) })
+                row.addView(text(c, 15f, Ui.INK_SOFT).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    setLineSpacing(dp(2).toFloat(), 1f)
+                })
+                box.addView(row)
+            }
+        }
+        AlertDialog.Builder(this, R.style.PeilDialog)
+            .setTitle(title)
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     private fun info(title: String, msg: String) {
