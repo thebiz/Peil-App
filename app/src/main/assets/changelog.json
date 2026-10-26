@@ -1,4 +1,8 @@
 [
+  {"version": "0.9.14", "date": "27.10.2026", "changes": [
+    "Gewähltes Ziel in der Liste nochmal antippen wählt es ab – Pfeil und Zielscheibe verschwinden, die Liste klappt wieder auf",
+    "Schmale Trefferreihe nach oben wischen vergrößert die Liste"
+  ]},
   {"version": "0.9.13", "date": "26.10.2026", "changes": [
     "Versionsverlauf im Menü: alle Änderungen pro Version nachlesen",
     "Nach jedem Update zeigt Peil einmal „Neu in dieser Version“"

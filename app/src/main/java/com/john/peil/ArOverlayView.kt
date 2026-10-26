@@ -186,6 +186,7 @@ class ArOverlayView @JvmOverloads constructor(
 
     fun setTargets(places: List<Place>) {
         targets = places.map { Target(it) }
+        noFocus = false
         radarZoom = 1f
         if (selected != null && places.none { it === selected }) selected = null
         recompute()
@@ -195,8 +196,22 @@ class ArOverlayView @JvmOverloads constructor(
     fun select(place: Place?) {
         if (place !== selected) radarZoom = 1f // neues Ziel: Radar passt sich wieder automatisch an
         selected = place
+        noFocus = false
         invalidate()
     }
+
+    /** Ziel abwählen: keine Hervorhebung, kein Pfeil, alle Treffer gleichwertig. */
+    fun deselect() {
+        selected = null
+        noFocus = true
+        radarZoom = 1f
+        invalidate()
+    }
+
+    /** Hat der Nutzer ein Ziel ausdrücklich gewählt? */
+    fun selectedPlace(): Place? = if (noFocus) null else selected
+
+    private var noFocus = false
 
     fun focusPlace(): Place? = focusTarget()?.place
 
@@ -257,7 +272,7 @@ class ArOverlayView @JvmOverloads constructor(
         return doubleArrayOf(d[0] * dist, up, d[1] * dist)
     }
 
-    private fun focusTarget(): Target? =
+    private fun focusTarget(): Target? = if (noFocus) null else
         selected?.let { s -> targets.firstOrNull { it.place === s } } ?: targets.firstOrNull()
 
     private fun recompute() {
@@ -299,7 +314,17 @@ class ArOverlayView @JvmOverloads constructor(
         placedBoxes.clear()
         if (targets.isEmpty() || myLat.isNaN() || !hasHeading) return
 
-        val focus = focusTarget() ?: return
+        val focus = focusTarget()
+        if (focus == null) {
+            // kein Ziel gewählt: alle Treffer gleichwertig, kein Pfeil, kein Zielpanel
+            if (isFlat) drawRadar(canvas, targets, null) else {
+                val layouts = targets.mapNotNull { layoutMarker(it, false) }
+                layouts.sortedByDescending { it.t.distance }.forEach { drawMarker(canvas, it) }
+                for (t in targets) if (layouts.none { it.t === t }) drawEdgeDot(canvas, t, false)
+                if (compassUnreliable && !arLocked) drawHint(canvas, "Kompass ungenau – Handy einmal in einer Acht schwenken")
+            }
+            return
+        }
         val visible = if (onlyFocus) listOf(focus) else targets
         if (arrivedPlace !== focus.place) {
             arrivedPlace = focus.place
@@ -502,7 +527,7 @@ class ArOverlayView @JvmOverloads constructor(
     }
 
     /** Kartenansicht von oben: Mitte = du, oben = Blickrichtung. */
-    private fun drawRadar(canvas: Canvas, visible: List<Target>, focus: Target) {
+    private fun drawRadar(canvas: Canvas, visible: List<Target>, focus: Target?) {
         canvas.drawColor(Color.argb(245, 245, 245, 242))
         val w = width.toFloat()
         val cx = w / 2
@@ -512,7 +537,7 @@ class ArOverlayView @JvmOverloads constructor(
         // Automatisch auf das Ziel zoomen: es liegt bei etwa zwei Dritteln des äußeren Rings.
         // Weiter entfernte Treffer landen als Punkte am Rand.
         val allRange = niceScale(visible.maxOf { it.distance })
-        val autoRange = niceScale(max(focus.distance * 1.5f, 30f)).coerceAtMost(allRange)
+        val autoRange = if (focus == null) allRange else niceScale(max(focus.distance * 1.5f, 30f)).coerceAtMost(allRange)
         // Rauszoomen bis alles sichtbar ist, reinzoomen bis etwa 30 m
         radarZoom = radarZoom.coerceIn(min(1f, autoRange / allRange), max(1f, autoRange / 30f))
         val scale = autoRange / radarZoom
@@ -538,7 +563,7 @@ class ArOverlayView @JvmOverloads constructor(
         arrowPath.close()
         canvas.drawPath(arrowPath, inkPaint)
 
-        val ordered = visible.filter { it !== focus } + focus
+        val ordered = visible.filter { it !== focus } + listOfNotNull(focus)
         for (t in ordered) {
             val isFocus = t === focus
             val rel = Math.toRadians(relAngle(t.bearing))

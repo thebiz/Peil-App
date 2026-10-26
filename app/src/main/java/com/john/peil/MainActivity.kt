@@ -717,6 +717,61 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         }
     }
 
+    /** Ziel abwählen: Pfeil und Zielscheibe verschwinden, die volle Liste klappt wieder auf. */
+    private fun deselectPlace() {
+        overlay.deselect()
+        listCompact = false
+        arrivedKey = null
+        rebuildList()
+        status("Kein Ziel gewählt – tipp einen Treffer an, um ihn anzupeilen.")
+    }
+
+    // Schmale Trefferreihe nach oben wischen → Liste groß
+    private var swipeDownX = 0f
+    private var swipeDownY = -1f
+    private var swipeConsumed = false
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (::bottomBar.isInitialized && listCompact && bottomBar.visibility == View.VISIBLE) {
+            when (ev.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    val loc = IntArray(2)
+                    bottomBar.getLocationOnScreen(loc)
+                    swipeConsumed = false
+                    swipeDownY = if (ev.rawY >= loc[1] && ev.rawY <= loc[1] + bottomBar.height) ev.rawY else -1f
+                    swipeDownX = ev.rawX
+                }
+                android.view.MotionEvent.ACTION_MOVE -> if (swipeDownY >= 0 && !swipeConsumed) {
+                    val dy = swipeDownY - ev.rawY
+                    val dx = Math.abs(ev.rawX - swipeDownX)
+                    if (dy > dp(36) && dy > dx * 1.5f) {
+                        swipeConsumed = true
+                        // laufende Berührung in der Liste abbrechen
+                        val cancel = android.view.MotionEvent.obtain(ev).apply { action = android.view.MotionEvent.ACTION_CANCEL }
+                        super.dispatchTouchEvent(cancel)
+                        cancel.recycle()
+                        listCompact = false
+                        rebuildList()
+                        return true
+                    }
+                }
+            }
+            if (swipeConsumed) {
+                if (ev.actionMasked == android.view.MotionEvent.ACTION_UP || ev.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
+                    swipeConsumed = false
+                    swipeDownY = -1f
+                }
+                return true
+            }
+        } else if (swipeConsumed && (ev.actionMasked == android.view.MotionEvent.ACTION_UP || ev.actionMasked == android.view.MotionEvent.ACTION_CANCEL)) {
+            swipeConsumed = false
+            return true
+        } else if (swipeConsumed) {
+            return true
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
     private fun sortedShown(): List<Place> {
         val loc = currentLocation ?: return shownPlaces()
         return shownPlaces().sortedBy { distanceTo(it, loc) }
@@ -747,7 +802,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
                     .apply { marginEnd = dp(8); bottomMargin = dp(2) }
             }
             // Antippen wählt das Ziel und klappt die Liste zu – Details gibt es über das Zielpanel
-            card.setOnClickListener { selectPlace(p) }
+            // Tipp wählt das Ziel (Liste klappt zu); Tipp auf das gewählte Ziel wählt es wieder ab
+            card.setOnClickListener { if (overlay.selectedPlace() === p) deselectPlace() else selectPlace(p) }
             card.addView(text(p.name, 15f, Ui.INK, Ui.MEDIUM, maxLines = 1))
             if (loc != null) {
                 val d = distanceTo(p, loc)
@@ -779,12 +835,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { marginEnd = dp(8); bottomMargin = dp(2) }
             setOnClickListener {
-                if (isSel) {
-                    listCompact = false
-                    rebuildList()
-                } else {
-                    selectPlace(p)
-                }
+                if (isSel) deselectPlace() else selectPlace(p)
             }
         }
     }
