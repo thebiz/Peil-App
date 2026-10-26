@@ -40,7 +40,12 @@ class ArOverlayView @JvmOverloads constructor(
     private class Target(val place: Place) {
         var distance = 0f
         var bearing = 0f
+        var hasBearing = false
     }
+
+    /** Am Ziel angekommen? Mit Hysterese, damit es nicht hin und her springt. */
+    private var arrived = false
+    private var arrivedPlace: Place? = null
 
     private var targets: List<Target> = emptyList()
     private var selected: Place? = null
@@ -261,7 +266,23 @@ class ArOverlayView @JvmOverloads constructor(
         for (t in targets) {
             Location.distanceBetween(myLat, myLon, t.place.lat, t.place.lon, res)
             t.distance = res[0]
-            t.bearing = (res[1] + 360f) % 360f
+            val b = (res[1] + 360f) % 360f
+            if (!t.hasBearing) {
+                t.bearing = b
+                t.hasBearing = true
+            } else {
+                // nah am Ziel springt die Richtung bei kleinen GPS-Fehlern stark → dort kräftig glätten
+                val k = when {
+                    t.distance < 30f -> 0.12
+                    t.distance < 80f -> 0.3
+                    else -> 0.6
+                }
+                val o = Math.toRadians(t.bearing.toDouble())
+                val n = Math.toRadians(b.toDouble())
+                val x = (1 - k) * sin(o) + k * sin(n)
+                val y = (1 - k) * cos(o) + k * cos(n)
+                t.bearing = ((Math.toDegrees(atan2(x, y)) + 360.0) % 360.0).toFloat()
+            }
         }
         targets = targets.sortedBy { it.distance }
     }
@@ -280,24 +301,29 @@ class ArOverlayView @JvmOverloads constructor(
 
         val focus = focusTarget() ?: return
         val visible = if (onlyFocus) listOf(focus) else targets
+        if (arrivedPlace !== focus.place) {
+            arrivedPlace = focus.place
+            arrived = false
+        }
+        arrived = if (arrived) focus.distance < 22f else focus.distance < 15f
 
         if (isFlat) {
             drawRadar(canvas, visible, focus)
         } else {
             // Erst das Ziel platzieren (bekommt den besten Platz), dann die anderen.
             val layouts = mutableListOf<MarkerLayout>()
-            layoutMarker(focus, true)?.let { layouts.add(it) }
+            if (!arrived) layoutMarker(focus, true)?.let { layouts.add(it) }
             for (t in visible) if (t !== focus) layoutMarker(t, false)?.let { layouts.add(it) }
             // Zeichnen: andere zuerst (fern → nah), das Ziel ganz vorne
             layouts.filter { !it.isFocus }.sortedByDescending { it.t.distance }.forEach { drawMarker(canvas, it) }
             layouts.firstOrNull { it.isFocus }?.let { drawMarker(canvas, it) }
-            for (t in visible) if (layouts.none { it.t === t }) drawEdgeDot(canvas, t, t === focus)
+            for (t in visible) if (layouts.none { it.t === t } && !(arrived && t === focus)) drawEdgeDot(canvas, t, t === focus)
 
             if (compassUnreliable && !arLocked) drawHint(canvas, "Kompass ungenau – Handy einmal in einer Acht schwenken")
         }
         drawGuide(canvas, focus)
         // Der 3D-Pfeil kommt zuletzt, damit nichts ihn verdeckt
-        if (!isFlat) draw3dArrow(canvas, focus)
+        if (!isFlat && !arrived) draw3dArrow(canvas, focus)
     }
 
     private class MarkerLayout(val t: Target, val isFocus: Boolean, val px: Float, val py: Float, val box: RectF)
@@ -557,6 +583,10 @@ class ArOverlayView @JvmOverloads constructor(
         val cy = panel.centerY()
         canvas.drawCircle(cx, cy, r, softPaint)
         val rel = relAngle(t.bearing)
+        if (arrived) {
+            drawArrivedGuide(canvas, t, panel, cx, cy, r)
+            return
+        }
         canvas.save()
         canvas.rotate(rel.toFloat(), cx, cy)
         arrowPath.reset()
@@ -585,6 +615,32 @@ class ArOverlayView @JvmOverloads constructor(
         val hdg = "${compassWord(heading)} ${heading.roundToInt()}°"
         val small = Paint(smallPaint).apply { textAlign = Paint.Align.RIGHT }
         canvas.drawText(hdg, panel.right - dp(14f), panel.top + dp(18f), small)
+    }
+
+    /** Am Ziel: ruhiger, sanft pulsierender Ring statt zappelndem Pfeil. */
+    private fun drawArrivedGuide(canvas: Canvas, t: Target, panel: RectF, cx: Float, cy: Float, r: Float) {
+        val phase = (SystemClock.uptimeMillis() % 2000L) / 2000f
+        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = dp(3f)
+            color = accent
+            alpha = ((1f - phase) * 200).toInt()
+        }
+        canvas.drawCircle(cx, cy, r * (0.45f + 0.5f * phase), ring)
+        canvas.drawCircle(cx, cy, r * 0.32f, accentPaint)
+        canvas.drawCircle(cx, cy, r * 0.14f, Paint(whitePaint).apply { clearShadowLayer() })
+        postInvalidateOnAnimation()
+
+        val tx = cx + r + dp(16f)
+        val maxChars = ((panel.right - tx - dp(12f)) / (bigTitlePaint.textSize * 0.55f)).toInt().coerceAtLeast(8)
+        var line = panel.top + dp(30f)
+        canvas.drawText(ellipsize(t.place.name, maxChars), tx, line, bigTitlePaint)
+        line += dp(24f)
+        canvas.drawText("Du bist da", tx, line, accentTextPaint)
+        line += dp(22f)
+        canvas.drawText("Ziel in unmittelbarer Nähe", tx, line, textPaint)
+        line += dp(19f)
+        canvas.drawText("TIPPEN FÜR DETAILS ›", tx, line, smallPaint)
     }
 
     private fun drawHint(canvas: Canvas, msg: String) {

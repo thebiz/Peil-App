@@ -282,6 +282,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         super.onPause()
         sensorManager.unregisterListener(this)
         locationManager?.removeUpdates(this)
+        fused?.removeLocationUpdates(fusedCallback)
         ar?.pause()
     }
 
@@ -454,7 +455,35 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
     // ---------- Standort ----------
 
     @SuppressLint("MissingPermission")
+    // Standortdienst von Google: kombiniert GPS, WLAN und Bewegungssensoren – meist deutlich ruhiger
+    private val locationFilter = LocationFilter()
+    private var fused: com.google.android.gms.location.FusedLocationProviderClient? = null
+    private val fusedCallback = object : com.google.android.gms.location.LocationCallback() {
+        override fun onLocationResult(result: com.google.android.gms.location.LocationResult) {
+            result.locations.forEach { onLocationChanged(it) }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     private fun startLocation() {
+        val playOk = com.google.android.gms.common.GoogleApiAvailability.getInstance()
+            .isGooglePlayServicesAvailable(this) == com.google.android.gms.common.ConnectionResult.SUCCESS
+        if (playOk) {
+            val client = fused ?: com.google.android.gms.location.LocationServices
+                .getFusedLocationProviderClient(this).also { fused = it }
+            val request = com.google.android.gms.location.LocationRequest.Builder(
+                com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, 1000L
+            ).setMinUpdateIntervalMillis(500L).build()
+            client.removeLocationUpdates(fusedCallback)
+            client.lastLocation.addOnSuccessListener { it?.let { l -> onLocationChanged(l) } }
+            client.requestLocationUpdates(request, fusedCallback, Looper.getMainLooper())
+            return
+        }
+        startLocationManager()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startLocationManager() {
         val lm = locationManager
             ?: (getSystemService(LOCATION_SERVICE) as LocationManager).also { locationManager = it }
         lm.removeUpdates(this)
@@ -468,12 +497,9 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
         if (!any) status("Standort ist aus – bitte in den Schnelleinstellungen einschalten.")
     }
 
-    override fun onLocationChanged(location: Location) {
-        val prev = currentLocation
-        // eine deutlich ungenauere Position kurz nach einer guten ignorieren
-        if (prev != null && prev.hasAccuracy() && location.hasAccuracy() &&
-            location.accuracy > prev.accuracy * 2 && location.time - prev.time < 10_000
-        ) return
+    override fun onLocationChanged(raw: Location) {
+        // Ausreißer verwerfen und sanft glätten
+        val location = locationFilter.add(raw) ?: return
 
         currentLocation = location
         declination = GeomagneticField(
@@ -504,7 +530,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener,
     private fun checkArrival() {
         val focus = overlay.focusPlace() ?: return
         val d = overlay.distanceTo(focus) ?: return
-        if (d < 25f && arrivedKey != focus.key) {
+        if (d < 15f && arrivedKey != focus.key) {
             arrivedKey = focus.key
             vibrate(longArrayOf(0, 120, 90, 120, 90, 250))
             status("Du bist da: ${focus.name} 🎉")
